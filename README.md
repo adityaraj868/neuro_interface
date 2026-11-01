@@ -80,6 +80,7 @@ scripts/
   inspect_dataset.py      Inspect EDF metadata and annotations
   run_experiment.py       Grouped CSP+LDA or CSP+SVM experiment
   compare_models.py       Same-fold model comparison
+  streamlit_app.py        Offline experiment dashboard
 src/muse/
   event_mapping.py        Pure PhysioNet run-label mapping
   data/                    Download and dataset assembly
@@ -95,7 +96,8 @@ experiments/EXPERIMENT_LOG.md  Real experiment history
 ## Environment setup
 
 The existing environment is Python 3.14.8 in `.venv`, with MNE 1.12.1,
-NumPy 2.5.2, SciPy 1.18.0, scikit-learn 1.9.0, and Matplotlib 3.11.1. The
+NumPy 2.5.2, SciPy 1.18.0, scikit-learn 1.9.0, Matplotlib 3.11.1, and
+Streamlit 1.66.1. The
 repository also contains `pyproject.toml` for an editable install:
 
 ```bash
@@ -195,6 +197,21 @@ PYTHONPATH=src .venv/bin/python scripts/run_experiment.py \
 
 This experiment reports `BOTH_HANDS` versus `BOTH_FEET`; it is not a
 four-direction UP/DOWN result.
+
+## Offline GUI
+
+Use the Streamlit dashboard to inspect saved experiment artifacts without
+opening notebooks:
+
+```bash
+./.venv/bin/streamlit run scripts/streamlit_app.py
+```
+
+The dashboard can switch between saved runs and shows headline metrics,
+confusion matrices, per-class reports, held-out fold scores, prediction
+errors, preprocessing configuration, saved-model presence, and the dataset
+audit. It is an offline testing interface; live headset input and computer
+control are not implemented yet.
 
 ## What the pipeline does
 

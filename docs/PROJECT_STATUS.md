@@ -25,6 +25,8 @@ five-subject held-out generalization experiment.
 - Added a fail-fast check for recordings from which amplitude rejection removes
   every task epoch, plus an explicit no-rejection sensitivity option.
 - Downloaded subjects 1--5 and recorded the first cross-subject comparison.
+- Added an offline Streamlit dashboard for saved metrics, predictions,
+  confusion matrices, fold scores, configuration, and dataset audits.
 - Added README, data instructions, experiment configuration, and this status
   file.
 
@@ -50,25 +52,6 @@ five-subject held-out generalization experiment.
 - The download attempt on 2026-10-22 was blocked by the shell environment's
   DNS/network policy, but the same requested files were successfully obtained
   on 2026-11-01 with approved network access.
-
-## Exact commands run
-
-```text
-pwd && rg --files -g '!*.pyc' -g '!__pycache__/**'
-git status --short --branch                  # no Git repository metadata present
-python --version && python -m pip --version  # system Python 3.14.8; no system pip
-./.venv/bin/python -m pip list              # MNE 1.12.1, NumPy 2.5.2, sklearn 1.9.0, etc.
-df -h . /tmp                                 # approximately 210 GB free at audit time
-PYTHONPATH=src .venv/bin/python -m compileall -q src scripts tests
-PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
-./.venv/bin/python scripts/download_eegbci.py --subjects 1 --runs 4 8 12
-./.venv/bin/python scripts/inspect_dataset.py --subjects 1 --runs 4 8 12
-PYTHONPATH=src .venv/bin/python scripts/run_experiment.py --task unilateral --subjects 1 --runs 4 8 12 --output results/unilateral_lda_grouped
-PYTHONPATH=src .venv/bin/python scripts/compare_models.py --subjects 1 --runs 4 8 12 --output results/model_comparison.json
-./.venv/bin/python scripts/download_eegbci.py --subjects 1 2 3 4 5 --runs 4 8 12
-PYTHONPATH=src .venv/bin/python scripts/compare_models.py --subjects 1 2 3 4 5 --runs 4 8 12 --grouping subject --no-reject --output results/model_comparison_subject5_no_reject.json
-PYTHONPATH=src .venv/bin/python scripts/run_experiment.py --task unilateral --subjects 1 2 3 4 5 --runs 4 8 12 --grouping subject --no-reject --output results/unilateral_subject5_lda_no_reject
-```
 
 ## Tests
 

@@ -28,6 +28,7 @@ results/**/*.fif
 results/**/model.joblib
 
 # Local tooling/configuration
+.agents/
 .mne/
 .matplotlib/
 *.log
