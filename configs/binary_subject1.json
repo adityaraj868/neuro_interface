@@ -1,0 +1,14 @@
+{
+  "task": "unilateral",
+  "subjects": [1],
+  "runs": [4, 8, 12],
+  "l_freq_hz": 8.0,
+  "h_freq_hz": 30.0,
+  "epoch_tmin_s": 1.0,
+  "epoch_tmax_s": 4.0,
+  "reject_uV": 150.0,
+  "csp_components": 4,
+  "model": "csp_lda",
+  "validation": "Leave-One-Recording-Group-Out"
+}
+

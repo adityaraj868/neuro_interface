@@ -1,0 +1,5 @@
+"""Stable PhysioNet EEGMMIDB run constants."""
+
+EEGBCI_UNILATERAL_IMAGERY_RUNS = (4, 8, 12)
+EEGBCI_BILATERAL_IMAGERY_RUNS = (6, 10, 14)
+

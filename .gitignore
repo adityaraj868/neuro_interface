@@ -1,0 +1,35 @@
+# Python and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+*.egg-info/
+
+# EEG data and local dataset caches
+data/physionet/
+data/**/*.edf
+data/**/*.event
+data/**/*.zip
+data/**/*.tar.gz
+data/**/*.csv
+data/**/*.fif
+data/**/.cache/
+
+# Generated experiment artifacts
+results/**/*.json
+results/**/*.csv
+results/**/*.png
+results/**/*.joblib
+results/**/*.fif
+results/**/model.joblib
+
+# Local tooling/configuration
+.mne/
+.matplotlib/
+*.log
+.DS_Store
+
