@@ -31,11 +31,11 @@ streaming is not implemented yet.
 | Download/setup workflow | done | `scripts/download_eegbci.py` |
 | MNE filtering and event-based epoching | done | `src/muse/preprocessing/epochs.py` |
 | Grouped CSP + LDA baseline | done | `src/muse/models/classical.py`, `scripts/run_experiment.py` |
-| Unit tests | done | 9 synthetic/software tests pass in the current environment |
-| Real EEG baseline result | blocked in this environment | PhysioNet DNS/network access failed; command remains documented below |
+| Unit tests | done | 10 synthetic/software tests pass in the current environment |
+| Real EEG baseline result | measured | Subject 1, 22 retained epochs, recording-held-out accuracy 59.09% |
 | Bilateral task experiment | planned | Uses real labels `BOTH_HANDS`/`BOTH_FEET` |
-| Model comparison | implemented, pending real data | CSP+LDA and CSP+linear-SVM |
-| Session/subject-held-out robustness | planned | Requires a broader subject/run experiment |
+| Model comparison | initial result measured | CSP+LDA and CSP+linear-SVM tie on the subject-1 subset |
+| Session/subject-held-out robustness | initial result measured | Five-subject held-out sensitivity run; broader evaluation pending |
 | Real-time decoder | planned | No supported EEG stream is configured |
 
 ## Dataset and supported intent classes
@@ -48,7 +48,7 @@ The event code meaning depends on the run and is not globally interchangeable:
 
 | MUSE target | Actual EEGMMIDB event/task | Evidence | Implemented | Validation status |
 |---|---|---|---|---|
-| LEFT | Imagined left fist; `T1` in runs 4, 8, 12 | [PhysioNet event documentation](https://physionet.org/content/eegmmidb/1.0.0/) | yes | Software validated; real-data result pending |
+| LEFT | Imagined left fist; `T1` in runs 4, 8, 12 | [PhysioNet event documentation](https://physionet.org/content/eegmmidb/1.0.0/) | yes | Software and initial real-data result validated |
 | RIGHT | Imagined right fist; `T2` in runs 4, 8, 12 | [PhysioNet event documentation](https://physionet.org/content/eegmmidb/1.0.0/) | yes | Software validated; real-data result pending |
 | UP | No validated UP/tongue class in EEGMMIDB | PhysioNet documents bilateral hands/feet, not tongue | no | Unsupported by selected dataset |
 | DOWN | No validated DOWN class; `T2` in runs 6, 10, 14 means both feet | [MNE EEGBCI run table](https://mne.tools/stable/generated/mne.datasets.eegbci.load_data.html) | no | Not relabeled from feet |
@@ -146,13 +146,16 @@ chosen results directory. The final model is for reproducible offline
 inference only; its evaluation score is the grouped held-out score, not the
 training score.
 
-The real-data result table below is intentionally empty because the download
-was blocked in this environment. No example accuracy is presented as a
-measurement. A two-class chance reference is 50%, but it is not a result.
+The first measured results are below. The subject-1 baseline uses the default
+150 µV peak-to-peak rejection. The five-subject generalization run disables
+that rule because it removed every task epoch from some recordings; it is
+reported as a preprocessing sensitivity result, not as a directly comparable
+replacement for the baseline.
 
 | Experiment | Classes | Validation | Epochs/groups | Accuracy | Balanced accuracy | Macro F1 |
 |---|---|---|---:|---:|---:|---:|
-| No measured experiment recorded yet | — | — | — | — | — | — |
+| Subject 1 unilateral | LEFT/RIGHT | Leave-One-Recording-Group-Out | 22 / 3 | 59.09% | 59.17% | 59.01% |
+| Subjects 1–5 unilateral | LEFT/RIGHT | Leave-One-Subject-Out, no rejection sensitivity | 225 / 5 | 46.67% | 46.79% | 42.13% |
 
 To compare the two implemented classical candidates under the same folds:
 
@@ -161,6 +164,25 @@ PYTHONPATH=src .venv/bin/python scripts/compare_models.py \
   --subjects 1 --runs 4 8 12 \
   --output results/model_comparison.json
 ```
+
+The subject-1 comparison produced identical results for CSP+LDA and
+CSP+linear-SVM: 59.09% accuracy, 59.17% balanced accuracy, and 59.01% macro
+F1 under the same three recording-held-out folds.
+
+For an initial cross-subject check, download subjects 1–5 and hold out each
+subject across all three runs. The `--no-reject` flag is explicit because the
+default rejection threshold removes entire recordings in this small subset:
+
+```bash
+./.venv/bin/python scripts/download_eegbci.py --subjects 1 2 3 4 5 --runs 4 8 12
+PYTHONPATH=src .venv/bin/python scripts/compare_models.py \
+  --subjects 1 2 3 4 5 --runs 4 8 12 --grouping subject --no-reject \
+  --output results/model_comparison_subject5_no_reject.json
+```
+
+That comparison scored CSP+LDA at 46.67% accuracy and CSP+SVM at 44.89% on
+225 epochs. These five-subject results are below the 50% two-class reference
+and should not be treated as evidence of a usable subject-independent decoder.
 
 For the supported bilateral task, download runs 6/10/14 and run:
 
@@ -182,7 +204,9 @@ four-direction UP/DOWN result.
    universally optimal.
 3. **Reference and epoch:** an average EEG reference is applied, then task
    epochs start 1 second after the cue and end at 4 seconds. `T0` rest is
-   excluded. MNE boundary and optional amplitude rejection are recorded.
+   excluded. MNE boundary and optional amplitude rejection are recorded. If
+   rejection removes every task epoch from a recording, loading fails loudly;
+   `--no-reject` is available only for an explicit sensitivity run.
 4. **CSP:** Common Spatial Pattern learns spatial filters that emphasize
    class-specific variance. It is fitted inside each validation fold to avoid
    leakage.
@@ -198,8 +222,10 @@ Epochs from one EDF recording are correlated, so a random epoch split can
 inflate performance. The baseline groups by subject/run and holds out a whole
 recording per fold. This is a within-subject, cross-recording test when one
 subject is selected; it is not evidence of subject-independent generalization.
+Use `--grouping subject` to hold out all requested runs from each subject.
 The current one-subject run is a feasibility experiment, not a clinical or
-real-world performance claim. Broader subject-held-out evaluation is planned.
+real-world performance claim. The initial five-subject subject-held-out run
+was below chance and broader evaluation is planned.
 
 Amplitude rejection is a simple configurable safeguard, not a complete
 artifact-removal system. Eye, muscle, line-noise, and movement artifacts need

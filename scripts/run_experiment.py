@@ -8,6 +8,8 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -24,6 +26,12 @@ def main() -> int:
     parser.add_argument("--runs", type=int, nargs="+", default=None)
     parser.add_argument("--task", choices=["unilateral", "bilateral"], default="unilateral")
     parser.add_argument("--model", choices=["lda", "svm"], default="lda")
+    parser.add_argument(
+        "--grouping",
+        choices=["recording", "subject"],
+        default="recording",
+        help="Hold out each subject/run recording or each subject across all requested runs.",
+    )
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--csp-components", type=int, default=4)
     parser.add_argument("--l-freq", type=float, default=8.0)
@@ -31,6 +39,13 @@ def main() -> int:
     parser.add_argument("--tmin", type=float, default=1.0)
     parser.add_argument("--tmax", type=float, default=4.0)
     parser.add_argument("--reject-uV", type=float, default=150.0)
+    parser.add_argument(
+        "--no-reject",
+        action="store_const",
+        const=None,
+        dest="reject_uV",
+        help="Disable amplitude rejection; use only as an explicitly labeled sensitivity run.",
+    )
     parser.add_argument(
         "--download-missing",
         action="store_true",
@@ -68,7 +83,12 @@ def main() -> int:
         if args.model == "lda"
         else make_csp_svm_pipeline(args.csp_components)
     )
-    result = evaluate_grouped(estimator, dataset.X, dataset.y, dataset.groups)
+    evaluation_groups = (
+        dataset.groups
+        if args.grouping == "recording"
+        else np.asarray([f"S{subject:03d}" for subject in dataset.subjects], dtype=str)
+    )
+    result = evaluate_grouped(estimator, dataset.X, dataset.y, evaluation_groups)
     output = args.output or ROOT / "results" / f"{args.task}_{args.model}_grouped"
     experiment_config = {
         "dataset": "PhysioNet EEG Motor Movement/Imagery Database v1.0.0",
@@ -85,7 +105,12 @@ def main() -> int:
         "n_channels": dataset.n_channels,
         "n_times": dataset.n_times,
         "run_metadata": list(dataset.run_metadata),
-        "validation": "Leave-One-Recording-Group-Out; each group is subject/run",
+        "grouping": args.grouping,
+        "validation": (
+            "Leave-One-Recording-Group-Out; each group is subject/run"
+            if args.grouping == "recording"
+            else "Leave-One-Subject-Out; all requested runs for one subject are held out together"
+        ),
     }
     artifacts = save_evaluation_artifacts(
         result,

@@ -8,6 +8,8 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -24,24 +26,50 @@ def main() -> int:
     parser.add_argument("--runs", type=int, nargs="+", default=[4, 8, 12])
     parser.add_argument("--output", type=Path, default=ROOT / "results" / "model_comparison.json")
     parser.add_argument("--csp-components", type=int, default=4)
+    parser.add_argument(
+        "--grouping",
+        choices=["recording", "subject"],
+        default="recording",
+        help="Hold out each subject/run recording or each subject across all requested runs.",
+    )
+    parser.add_argument("--reject-uV", type=float, default=150.0)
+    parser.add_argument(
+        "--no-reject",
+        action="store_const",
+        const=None,
+        dest="reject_uV",
+        help="Disable amplitude rejection; use only as an explicitly labeled sensitivity run.",
+    )
     args = parser.parse_args()
+    preprocessing = PreprocessingConfig(reject_uV=args.reject_uV)
     dataset = load_imagery_dataset(
         args.data_dir,
         args.subjects,
         args.runs,
-        config=PreprocessingConfig(),
+        config=preprocessing,
+    )
+    evaluation_groups = (
+        dataset.groups
+        if args.grouping == "recording"
+        else np.asarray([f"S{subject:03d}" for subject in dataset.subjects], dtype=str)
     )
     results = {}
     for name, estimator in {
         "csp_lda": make_csp_lda_pipeline(args.csp_components),
         "csp_svm": make_csp_svm_pipeline(args.csp_components),
     }.items():
-        results[name] = evaluate_grouped(estimator, dataset.X, dataset.y, dataset.groups).as_dict()
+        results[name] = evaluate_grouped(estimator, dataset.X, dataset.y, evaluation_groups).as_dict()
     payload = {
         "dataset": "PhysioNet EEG Motor Movement/Imagery Database v1.0.0",
         "subjects": args.subjects,
         "runs": args.runs,
-        "validation": "Leave-One-Recording-Group-Out; each group is subject/run",
+        "grouping": args.grouping,
+        "preprocessing": preprocessing.as_dict(),
+        "validation": (
+            "Leave-One-Recording-Group-Out; each group is subject/run"
+            if args.grouping == "recording"
+            else "Leave-One-Subject-Out; all requested runs for one subject are held out together"
+        ),
         "results": results,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
