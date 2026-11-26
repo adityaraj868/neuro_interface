@@ -36,3 +36,15 @@ class PreprocessingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_epoch_dataset(np.zeros((2, 3, 4)), np.array(["LEFT"]), np.array(["a", "b"]))
 
+    def test_all_rejected_epochs_fail_loudly(self):
+        sfreq = 100.0
+        rng = np.random.default_rng(8)
+        raw = mne.io.RawArray(rng.normal(size=(4, 1200)) * 1e-3, mne.create_info(4, sfreq, "eeg"), verbose=False)
+        raw.set_annotations(mne.Annotations([2.0, 6.0], [0.0, 0.0], ["T1", "T2"]))
+        with self.assertRaisesRegex(ValueError, "no retained task epochs"):
+            epoch_raw(
+                raw,
+                run=4,
+                config=PreprocessingConfig(tmin=0.5, tmax=1.5, reject_uV=1.0),
+            )
+

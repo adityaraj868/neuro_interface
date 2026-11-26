@@ -28,8 +28,12 @@ results/**/*.fif
 results/**/model.joblib
 
 # Local tooling/configuration
+.agents/
 .mne/
 .matplotlib/
 *.log
 .DS_Store
+
+# Private collaboration track notes
+TRACK.md
 

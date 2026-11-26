@@ -95,6 +95,13 @@ def epoch_raw(raw: Any, run: int, config: PreprocessingConfig) -> EpochBundle:
     )
     # MNE can drop boundary/amplitude-rejected trials.  Use the retained event
     # codes rather than assuming every selected event survived.
+    if len(epochs) == 0:
+        threshold = "disabled" if config.reject_uV is None else f"{config.reject_uV:g} uV"
+        raise ValueError(
+            f"Run {run} produced no retained task epochs with amplitude rejection at {threshold}. "
+            "Increase --reject-uV, use --no-reject for a documented sensitivity run, "
+            "or inspect the recording quality."
+        )
     retained_codes = epochs.events[:, 2]
     retained_labels = np.asarray([code_to_label[int(code)] for code in retained_codes], dtype=str)
     X = epochs.get_data(copy=True)
