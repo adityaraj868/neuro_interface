@@ -117,30 +117,16 @@ Our pipeline evolved through 4 distinct engineering iterations, creating a compe
 │ • Model A (Left vs Right) + Model B (Both Hands vs Feet)               │
 │ • Discovery: Lateral suppression bug (Both Hands activated on Left/Rt) │
 │ • Resolution: Hierarchical lateral arbitration rule                    │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
+├────────────────────────────────────────────────────────────────────────┤
 │ ITERATION 2: Unified 4-Class CSP + LDA                                 │
 │ • Single 4-class generalized eigenvalue decomposition                  │
 │ • 8 spatial log-power features, Ledoit-Wolf shrinkage LDA              │
-│ • Result: 68.9% 5-fold CV accuracy; eliminates axis conflict           │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│ ITERATION 3: Filter Bank CSP (FBCSP + Mutual Information)              │
-│ • 5 sub-bands (8-12, 12-16, 16-20, 20-26, 26-30 Hz)                   │
-│ • Information-theoretic feature selection (SelectKBest)                │
-│ • Result: 31.5% Cross-Subject LOSO transfer (highest among all models) │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│ ITERATION 4: Covariance Riemannian Geometry (Flagship)                 │
-│ • OAS covariance estimation on Riemannian manifold                     │
+│ • Result: 68.9% 5-fold CV; 77.8% Held-out Test; eliminates conflict    │
+├────────────────────────────────────────────────────────────────────────┤
+│ ITERATION 3: Covariance Riemannian Geometry (Flagship Manifold Model)  │
+│ • OAS covariance estimation on Riemannian SPD manifold                 │
 │ • Tangent Space Euclidean projection + Linear SVM (C=1.0)              │
-│ • Result: 74.4% 4-Class CV, 82.2% 2-Class, 95.8% Feet Recall           │
+│ • Result: 74.4% 4-Class CV, 88.9% Held-out Test (100% UP, 100% DOWN)  │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -168,31 +154,12 @@ Our pipeline evolved through 4 distinct engineering iterations, creating a compe
   3. Extracts $n_{\text{components}} = 8$ spatial filters, transforming 64 raw EEG channels into 8 spatial log-power variance features:
      $$f_j = \log(\operatorname{var}(w_j^\top X))$$
   4. Regularized Shrinkage LDA fits linear decision boundaries among the 4 classes.
-- **Metrics:** **68.9% 5-fold CV accuracy** (Balanced Accuracy: 68.4%, Macro F1: 68.0%).
+- **Metrics:** **68.9% 5-fold CV accuracy** (Held-Out Test Accuracy: **77.8%**, Balanced Accuracy: 78.8%).
 - **Key Takeaway:** Proved that formulating the problem as a single 4-class model permanently eliminates the axis-conflict bug.
 
 ---
 
-### Iteration 3: Filter Bank CSP (FBCSP + Mutual Information)
-- **Concept:** Standard CSP forces a single 8–30 Hz band, ignoring individual frequency differences. FBCSP decomposes the signal across a bank of bandpass filters.
-- **Mathematical Working:**
-  1. Decomposes each trial through 5 zero-phase Chebyshev/Butterworth filters:
-     - Band 1: $8 - 12\text{ Hz}$ ($\mu$ rhythm)
-     - Band 2: $12 - 16\text{ Hz}$ (Low $\beta$)
-     - Band 3: $16 - 20\text{ Hz}$ (Mid $\beta$)
-     - Band 4: $20 - 26\text{ Hz}$ (High $\beta$)
-     - Band 5: $26 - 30\text{ Hz}$ (Sensorimotor rebound)
-  2. Extracts multiclass CSP spatial filters independently for each sub-band (generating $5 \times 6 = 30$ features).
-  3. Uses **Mutual Information** feature selection (`SelectKBest(score_func=mutual_info_classif, k=12)`) to automatically pick the most discriminative frequency-spatial features for that subject.
-  4. Shrinkage LDA classifies the selected features.
-- **Metrics:**
-  - 4-Class Within-Subject CV: **55.6%**
-  - 2-Class Left vs. Right: **75.6%**
-  - **Cross-Subject (LOSO) Transfer:** **31.5%** *(Highest among all models when evaluating on unseen subjects!)*.
-
----
-
-### Iteration 4: Covariance Riemannian Geometry (Flagship Model)
+### Iteration 3: Covariance Riemannian Geometry (Flagship Manifold Model)
 - **Concept:** Rather than projecting signals into spatial power vectors, treat the full spatial covariance matrix as a point on a curved Riemannian manifold.
 - **Mathematical Working:**
   1. **Covariance Matrix Estimation:** For trial $X_i \in \mathbb{R}^{C \times T}$, compute the sample covariance matrix $\Sigma_i \in \mathbb{R}^{C \times C}$.

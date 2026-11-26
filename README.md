@@ -28,13 +28,12 @@ flowchart TD
 
     subgraph S2["2. Feature Extraction & Decoding Pipelines"]
         D --> M1["Iteration 1: Dual Binary CSP + LDA (Orthogonal Gating)"]
-        D --> M2["Iteration 2: Calibrated 4-Class CSP + LDA (Multiclass)"]
-        D --> M3["Iteration 3: Filter Bank CSP (FBCSP + Mutual Info)"]
-        D --> M4["Iteration 4 (Flagship): Covariance Riemannian Geometry"]
+        D --> M2["Iteration 2: Calibrated 4-Class CSP + LDA (Unified Multiclass)"]
+        D --> M3["Iteration 3 (Flagship): Covariance Riemannian Geometry"]
     end
 
     subgraph S3["3. Riemannian Manifold Geometry"]
-        M4 --> R1["OAS Regularized Covariance Matrix: Σ ∈ R^(64×64)"]
+        M3 --> R1["OAS Regularized Covariance Matrix: Σ ∈ R^(64×64)"]
         R1 --> R2["Fréchet Geometric Mean on Manifold (AIRM)"]
         R2 --> R3["Tangent Space Projection: Logm(P_ref^(-1/2) Σ P_ref^(-1/2))"]
         R3 --> R4["Linear Support Vector Machine (C=1.0)"]
@@ -63,19 +62,17 @@ The system maps 4 neurophysiologically validated motor imagery tasks to 2D cardi
 
 ---
 
-## 3. Four-Stage Architectural Evolution & Benchmark
+## 3. Three-Stage Architectural Evolution & Benchmark
 
-MUSE iteratively engineered and benchmarked 4 distinct decoding paradigms on Subject 1 ($N=90$ trials):
+MUSE iteratively engineered and benchmarked 3 distinct decoding paradigms on Subject 1 (=90$ trials):
 
-| Iteration | Model Architecture | Paradigm | 5-Fold CV Mean | Held-Out Test Accuracy ($N=18$ Unseen) | UP (Hands) Recall | DOWN (Feet) Recall | Left Recall | Right Recall |
+| Iteration | Model Architecture | Paradigm | 5-Fold CV Mean | Held-Out Test Accuracy (=18$ Unseen) | UP (Hands) Recall | DOWN (Feet) Recall | Left Recall | Right Recall |
 | :---: | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
 | **1** | Dual Binary CSP + LDA | 2 Independent 1D Decoders | N/A (Axis Conflict) | Baseline | 0.0% (Suppressed) | 100.0% | 75.0% | 75.0% |
 | **2** | Calibrated 4-Class CSP + LDA | Multiclass Spatial Filters | 68.89% | 77.78% | 100.0% | 100.0% | 50.0% | 75.0% |
-| **3** | Filter Bank CSP (FBCSP) | 5 Sub-bands + Mutual Info | 55.56% | 55.56% | 75.0% | 100.0% | 40.0% | 50.0% |
-| **4** | **Calibrated Riemannian SVM (Flagship)** | **Covariance Tangent Space** | **74.44%** | **88.89% (16 / 18)** | **100.0% (4/4)** | **100.0% (5/5)** | **80.0% (4/5)** | **75.0% (3/4)** |
+| **3** | **Calibrated Riemannian SVM (Flagship)** | **Covariance Tangent Space** | **74.44%** | **88.89% (16 / 18)** | **100.0% (4/4)** | **100.0% (5/5)** | **80.0% (4/5)** | **75.0% (3/4)** |
 
 *Theoretical Chance Level for 4-Class Classification is **25.0%**.*
-
 ### Why Riemannian Geometry Outperformed CSP
 Standard Common Spatial Patterns (CSP) is vulnerable to non-stationary EEG impedance drift across sessions. Covariance Riemannian geometry represents each trial by its regularized spatial covariance matrix on a curved Symmetric Positive-Definite (SPD) manifold. Under the Affine-Invariant Riemannian Metric (AIRM), covariance matrices are completely invariant to spatial rotations and linear channel amplitude scaling, yielding **88.89% out-of-sample accuracy**.
 

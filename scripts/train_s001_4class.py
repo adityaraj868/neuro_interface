@@ -33,7 +33,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from muse.data import load_four_class_imagery_dataset  # noqa: E402
 from muse.evaluation.metrics import EvaluationResult, save_evaluation_artifacts  # noqa: E402
-from muse.models import make_fbcsp_pipeline, make_riemannian_svm_pipeline  # noqa: E402
+from muse.models import make_riemannian_svm_pipeline  # noqa: E402
 from muse.preprocessing import PreprocessingConfig  # noqa: E402
 
 
@@ -292,18 +292,6 @@ def main() -> int:
             skf,
             ROOT / "results" / "s001_4class_lda",
             {**base_config, "model": "csp8_oas_lda_calibrated"},
-        ),
-        "s001_4class_fbcsp": _evaluate_cv_and_save(
-            "s001_4class_fbcsp",
-            lambda: make_fbcsp_pipeline(n_components=6, k_features=12, classifier_type="lda"),
-            X,
-            y,
-            groups,
-            train_idx,
-            test_idx,
-            skf,
-            ROOT / "results" / "s001_4class_fbcsp",
-            {**base_config, "model": "fbcsp_mi_lda_calibrated"},
         ),
     }
 
