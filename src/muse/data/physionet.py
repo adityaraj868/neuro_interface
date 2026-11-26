@@ -239,6 +239,57 @@ def load_imagery_dataset(
     )
 
 
+def load_four_class_imagery_dataset(
+    data_dir: str | Path,
+    subjects: int | Sequence[int],
+    *,
+    unilateral_runs: Sequence[int] = EEGBCI_UNILATERAL_IMAGERY_RUNS,
+    bilateral_runs: Sequence[int] = EEGBCI_BILATERAL_IMAGERY_RUNS,
+    config: PreprocessingConfig | None = None,
+) -> EpochDataset:
+    """Load and combine unilateral (LEFT/RIGHT) and bilateral (BOTH_HANDS/BOTH_FEET) runs.
+
+    Each unilateral/bilateral run pair (e.g. R04+R06, R08+R10, R12+R14) is assigned
+    a shared session group so every Leave-One-Group-Out fold holds out one full
+    4-class recording session without leaking trials across folds.
+    """
+    if len(unilateral_runs) != len(bilateral_runs):
+        raise ValueError("Unilateral and bilateral run lists must have the same length.")
+
+    uni = load_imagery_dataset(data_dir, subjects, unilateral_runs, config=config)
+    bi = load_imagery_dataset(data_dir, subjects, bilateral_runs, config=config)
+
+    uni_session = {int(run): idx + 1 for idx, run in enumerate(unilateral_runs)}
+    bi_session = {int(run): idx + 1 for idx, run in enumerate(bilateral_runs)}
+
+    X = np.concatenate([uni.X, bi.X], axis=0)
+    y = np.concatenate([uni.y, bi.y], axis=0)
+    subject_values = np.concatenate([uni.subjects, bi.subjects], axis=0)
+    run_values = np.concatenate([uni.runs, bi.runs], axis=0)
+
+    uni_groups = [
+        f"S{int(sub):03d}_session{uni_session[int(run)]}"
+        for sub, run in zip(uni.subjects, uni.runs)
+    ]
+    bi_groups = [
+        f"S{int(sub):03d}_session{bi_session[int(run)]}"
+        for sub, run in zip(bi.subjects, bi.runs)
+    ]
+    groups = np.asarray(uni_groups + bi_groups, dtype=str)
+    validate_epoch_dataset(X, y, groups)
+
+    return EpochDataset(
+        X=X,
+        y=y,
+        groups=groups,
+        subjects=subject_values,
+        runs=run_values,
+        sfreq=uni.sfreq,
+        preprocessing=uni.preprocessing,
+        run_metadata=uni.run_metadata + bi.run_metadata,
+    )
+
+
 def validate_epoch_dataset(X: np.ndarray, y: np.ndarray, groups: np.ndarray) -> None:
     """Validate epoch dimensions and trial-level metadata alignment."""
 
