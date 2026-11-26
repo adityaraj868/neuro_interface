@@ -26,6 +26,8 @@ results/**/*.png
 results/**/*.joblib
 results/**/*.fif
 results/**/model.joblib
+results/**/*.npz
+results/*.npz
 
 # Local tooling/configuration
 .agents/

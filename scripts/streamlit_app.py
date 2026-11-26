@@ -65,7 +65,39 @@ def _resolve_sensorimotor_indices(ch_names: list[str]) -> tuple[int, int, int]:
 
 
 def extract_thought_epochs(data_dir: Path) -> dict[str, dict[str, Any]]:
-    """Extract raw (64, 481) [1.0s, 4.0s] task epochs and trial provenance from Subject 1."""
+    """Extract raw (64, 481) [0.5s, 3.5s] task epochs and trial provenance from Subject 1.
+
+    Prefers loading the strictly unseen Fold 1 held-out test split from
+    results/held_out_test_epochs.npz (zero training leakage). Falls back to raw EDFs.
+    """
+    held_out_npz = ROOT / "results" / "held_out_test_epochs.npz"
+    if held_out_npz.exists():
+        npz_data = np.load(held_out_npz)
+        X_test = npz_data["X_test"]
+        y_test = npz_data["y_test"]
+        meta_list = json.loads(str(npz_data["metadata_json"]))
+        pools: dict[str, list[np.ndarray]] = {"LEFT": [], "RIGHT": [], "UP": [], "DOWN": []}
+        meta_pools: dict[str, list[dict[str, Any]]] = {"LEFT": [], "RIGHT": [], "UP": [], "DOWN": []}
+
+        for idx, (trial_x, label, trial_meta) in enumerate(zip(X_test, y_test, meta_list)):
+            key = {"BOTH_HANDS": "UP", "BOTH_FEET": "DOWN"}.get(str(label), str(label))
+            if key in pools:
+                pools[key].append(trial_x[np.newaxis, :, :])
+                meta_pools[key].append(trial_meta)
+
+        sfreq = float(meta_list[0].get("sfreq", 160.0)) if meta_list else 160.0
+        return {
+            key: {
+                "X": np.concatenate(chunks, axis=0) if chunks else np.zeros((0, 64, 481)),
+                "meta": meta_pools[key],
+                "sfreq": sfreq,
+                "c3_idx": 8,
+                "cz_idx": 10,
+                "c4_idx": 12,
+            }
+            for key, chunks in pools.items()
+        }
+
     import mne
 
     pools: dict[str, list[np.ndarray]] = {"LEFT": [], "RIGHT": [], "UP": [], "DOWN": []}
@@ -713,8 +745,8 @@ def _render_live_bci_arena(results_dir: Path) -> None:
         if arena_mode == "Interactive 4-Direction Simulator":
             st.markdown("#### 4-Direction Thought Simulator (Unseen Held-Out Trials)")
             st.caption(
-                "Sample a real held-out `(64, 481)` EEG epoch from `S001R12.edf` / `S001R14.edf` "
-                "and run blind 4-way inference (`axis_lock=\"AUTO\"`)."
+                "Sample a real held-out `(64, 481)` EEG epoch from Subject 1's strictly unseen Fold 1 test set "
+                "and run blind 4-way inference (`axis_lock=\"AUTO\"`). Zero training leakage."
             )
             dpad_r1_c1, dpad_r1_c2, dpad_r1_c3 = st.columns(3)
             with dpad_r1_c2:
@@ -798,7 +830,8 @@ def _render_live_bci_arena(results_dir: Path) -> None:
                     prov_col1.markdown(
                         f"- **Source EDF:** `{last_trial['source_file']}`\n"
                         f"- **Trial Index:** `#{last_trial['trial_index']}`\n"
-                        f"- **Event Marker:** `{last_trial['event_code']}`"
+                        f"- **Event Marker:** `{last_trial['event_code']}`\n"
+                        f"- **Split:** `Held-Out Fold 1 (Unseen in Training)`"
                     )
                     prov_col2.markdown(
                         f"- **Tensor Shape:** `{last_trial['shape']}`\n"

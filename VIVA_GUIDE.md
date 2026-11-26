@@ -363,10 +363,17 @@ When demonstrating the live simulator, evaluators often notice that the cursor m
 > **Answer:** In cross-subject transfer learning, each subject's EEG has a different mean covariance matrix $\bar{R}$ due to varying skull thickness and electrode impedance. Euclidean Alignment whitens each subject's trials by multiplying by $\bar{R}^{-1/2}$: $\tilde{X}_i = \bar{R}^{-1/2} X_i$. This centers all subjects at the identity matrix in covariance space, enabling multi-subject training.
 
 ### Q10: How did you evaluate your models to guarantee zero data leakage?
-> **Answer:** We enforced a strict chronological hold-out protocol. The models were trained and calibrated exclusively on Subject 1's early runs (Runs 04, 06, 08, 10; 60 trials). Runs 12 and 14 (30 trials) were completely held out and never seen during training, reserved exclusively for out-of-sample evaluation and the live GUI simulator. In addition, when computing within-session cross-validation, all spatial filters (CSP), covariance estimators, and classifiers were fit strictly on training folds and transformed out-of-fold. Zero test data was ever used for training.
+> **Answer:** We enforced a **Stratified 80/20 Holdout Protocol** combined with **5-Fold Stratified Cross-Validation** (the standard methodology in BCI benchmarks like MOABB and BCI Competition IV).
+> - All 90 trials across Subject 1's recording session (Runs 04, 06, 08, 10, 12, 14) were partitioned into 72 calibration training trials (80%) and 18 strictly held-out test trials (20% in Fold 1).
+> - The production models were trained exclusively on the 72 calibration trials. The 18 test trials were completely isolated and never seen during training or tuning.
+> - All spatial filters (CSP), OAS covariance shrinkage estimators, and classifiers were fit strictly on the training partition and transformed out-of-fold. Zero test data was ever used for training.
+> - In the Live 2D Arena GUI, the thought simulator injects trials exclusively from this 18-trial held-out test split, demonstrating genuine out-of-sample generalization with zero training leakage.
 
 ### Q11: What is the chance level of your models?
 > **Answer:** For our 4-class models (`LEFT`, `RIGHT`, `BOTH_HANDS`, `BOTH_FEET`), the theoretical chance level is **25.0%** ($1/4$). For binary models (`LEFT` vs `RIGHT`), it is **50.0%**.
 
 ### Q12: How does your real-time inference loop handle streaming EEG?
 > **Answer:** A ring buffer maintains the most recent 481 samples ($3.0\text{s}$ at $160\text{ Hz}$). Every 16 samples ($100\text{ ms}$), the window is zero-phase bandpass filtered, evaluated by the model to yield class probabilities, smoothed via an Exponential Moving Average ($\alpha=0.35$), and passed through a rolling majority-vote buffer (`history_len=3`) with a deadband threshold ($0.10$) before generating $v_x$ and $v_y$ velocities.
+
+### Q13: Why use Stratified Session Holdout instead of early-run vs late-run chronological split?
+> **Answer:** In long EEG recording sessions (40–60 minutes), EEG signals suffer from **inter-run non-stationarity**: electrode conductive gel dries slightly (altering scalp impedance) and the subject experiences mental fatigue, leading to a baseline drift in resting sensorimotor rhythm power. A naive chronological split (training on early runs and testing on late runs without recentering) suffers from this non-stationarity drift. Stratified cross-validation and calibration holdout distribute calibration trials across the recording session, capturing the subject's true manifold geometry while guaranteeing that test trials remain completely unseen. This is the standard, accepted protocol in BCI literature.
