@@ -143,11 +143,16 @@ class BCIInferenceEngine:
             top_class = max(four_classes, key=lambda c: smoothed[c])
             top_conf = smoothed[top_class]
 
+            # In 4-class classification, theoretical chance is 0.25. If self.threshold is >= 0.50
+            # (which is the default for 2-class binary models), adapt it to 0.35 so winning
+            # 4-class probabilities (e.g. 44%-48%) reliably trigger cursor motion.
+            effective_threshold = min(self.threshold, 0.35) if self.threshold >= 0.50 else self.threshold
+
             vx = smoothed.get("RIGHT", 0.0) - smoothed.get("LEFT", 0.0)
             vy = smoothed.get("BOTH_HANDS", 0.0) - smoothed.get("BOTH_FEET", 0.0)
 
             # Confidence thresholding
-            if top_conf < self.threshold or (abs(vx) < self.deadband and abs(vy) < self.deadband):
+            if top_conf < effective_threshold or (abs(vx) < self.deadband and abs(vy) < self.deadband):
                 h_cmd, v_cmd = "NEUTRAL", "NEUTRAL"
                 vx, vy = 0.0, 0.0
             else:

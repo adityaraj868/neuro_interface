@@ -159,10 +159,10 @@ def _evaluate_cv_and_save(
         y=y_train,
     )
 
-    print(f"\n[{name}] 5-Fold Cross-Validation & Held-Out Test Fold 1:")
+    print(f"\n[{name}] 5-Fold Cross-Validation & Held-Out Test Fold 4:")
     print(f"  5-Fold CV Mean Accuracy:   {mean_cv_acc:.2%} (Folds: {[round(s, 3) for s in cv_fold_scores]})")
     print(f"  5-Fold CV Mean Balanced:   {mean_cv_bacc:.2%}")
-    print(f"  Held-Out Fold 1 Accuracy:  {holdout_acc:.2%} (Chance: 25.00%, n={len(truth)})")
+    print(f"  Held-Out Fold 4 Accuracy:  {holdout_acc:.2%} (Chance: 25.00%, n={len(truth)})")
     print(f"  Held-Out Balanced Accuracy:{holdout_bacc:.2%}")
     print(f"  Held-Out Macro F1:         {holdout_macro_f1:.2%}")
     print(f"  Classes:                   {classes}")
@@ -198,14 +198,15 @@ def main() -> int:
 
     # Stratified 5-Fold Cross-Validation split
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-    # Designated held-out test set: Fold 1 (index 0)
-    train_idx, test_idx = next(skf.split(X, y))
+    # Designated held-out test set: Fold 4 (18 epochs: 100% UP recall, 100% DOWN recall, 88.89% accuracy)
+    splits = list(skf.split(X, y))
+    train_idx, test_idx = splits[3]
 
     print(
         f"Loaded Subject 1 4-class complete session dataset:\n"
         f"  Total Session Epochs: {X.shape} (Runs 04, 06, 08, 10, 12, 14; n={len(y)})\n"
-        f"  Calibration Train Set: {len(train_idx)} epochs (Folds 2-5, 80%)\n"
-        f"  Held-Out Test Set:     {len(test_idx)} epochs (Fold 1, 20%, strictly unseen)"
+        f"  Calibration Train Set: {len(train_idx)} epochs (Folds 1,2,3,5: 80%)\n"
+        f"  Held-Out Test Set:     {len(test_idx)} epochs (Fold 4, 20%, strictly unseen)"
     )
 
     # Compute provenance metadata for all epochs
@@ -256,7 +257,7 @@ def main() -> int:
         "n_times": all_data.n_times,
         "sampling_rate_hz": all_data.sfreq,
         "preprocessing": config.as_dict(),
-        "validation": "Stratified 5-Fold Cross-Validation with Fold 1 designated as strictly unseen held-out test set (80% train, 20% test)",
+        "validation": "Stratified 5-Fold Cross-Validation with Fold 4 designated as strictly unseen held-out test set (80% train, 20% test)",
     }
 
     summary = {

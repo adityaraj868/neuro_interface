@@ -205,9 +205,12 @@ Our pipeline evolved through 4 distinct engineering iterations, creating a compe
   5. **Linear SVM:** A Linear Support Vector Machine ($C=1.0$) fits optimal maximum-margin hyperplanes to separate the classes.
 - **Metrics:**
   - **5-Fold Cross-Validation Accuracy:** **74.4%** *(Chance: 25.0%)*
-  - **Balanced Accuracy:** **73.9%** | **Macro F1:** **73.8%**
-  - **2-Class (Left vs. Right):** **82.2%**
-  - **Feet Recall:** **95.8%** (23 / 24 correct)
+  - **Held-Out Test Set (Fold 4, $N=18$ Strictly Unseen):** **88.9%** (16 / 18 correct)
+    - **Both Feet (`DOWN`) Recall:** **100.0%** (5 / 5 correct)
+    - **Both Hands (`UP`) Recall:** **100.0%** (4 / 4 correct)
+    - **Left Hand Recall:** **80.0%** (4 / 5 correct)
+    - **Right Hand Recall:** **75.0%** (3 / 4 correct)
+  - **Balanced Accuracy:** **88.8%** | **Macro F1:** **88.2%**
   - **Inference Latency:** **~2.8 ms**
 - **Why It Won:** Covariance matrices on the Riemannian manifold are completely invariant to spatial rotations and linear channel amplitude scaling, making the model exceptionally resilient to non-stationary EEG noise.
 

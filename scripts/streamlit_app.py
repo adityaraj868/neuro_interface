@@ -394,7 +394,7 @@ def _on_think_direction(
     engine = BCIInferenceEngine(
         horizontal_model_path=h_model,
         vertical_model_path=v_model,
-        threshold=0.50,
+        threshold=0.35 if v_model is None else 0.50,
         deadband=0.10,
         single_axis=True,
         smoothing_alpha=0.35,
@@ -745,7 +745,7 @@ def _render_live_bci_arena(results_dir: Path) -> None:
         if arena_mode == "Interactive 4-Direction Simulator":
             st.markdown("#### 4-Direction Thought Simulator (Unseen Held-Out Trials)")
             st.caption(
-                "Sample a real held-out `(64, 481)` EEG epoch from Subject 1's strictly unseen Fold 1 test set "
+                "Sample a real held-out `(64, 481)` EEG epoch from Subject 1's strictly unseen Fold 4 test set "
                 "and run blind 4-way inference (`axis_lock=\"AUTO\"`). Zero training leakage."
             )
             dpad_r1_c1, dpad_r1_c2, dpad_r1_c3 = st.columns(3)
@@ -831,7 +831,7 @@ def _render_live_bci_arena(results_dir: Path) -> None:
                         f"- **Source EDF:** `{last_trial['source_file']}`\n"
                         f"- **Trial Index:** `#{last_trial['trial_index']}`\n"
                         f"- **Event Marker:** `{last_trial['event_code']}`\n"
-                        f"- **Split:** `Held-Out Fold 1 (Unseen in Training)`"
+                        f"- **Split:** `Held-Out Fold 4 (Unseen in Training)`"
                     )
                     prov_col2.markdown(
                         f"- **Tensor Shape:** `{last_trial['shape']}`\n"
@@ -908,7 +908,7 @@ def _render_live_bci_arena(results_dir: Path) -> None:
             engine = BCIInferenceEngine(
                 horizontal_model_path=h_model,
                 vertical_model_path=v_model,
-                threshold=0.50,
+                threshold=0.35 if v_model is None else 0.50,
                 deadband=0.10,
                 single_axis=True,
                 smoothing_alpha=0.35,
