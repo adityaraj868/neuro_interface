@@ -3,8 +3,10 @@
 ## Current phase
 
 Milestone 1 is complete, including the first real-data LEFT/RIGHT result.
-Milestone 2 has started with CSP+LDA/SVM comparison and an initial
-five-subject held-out generalization experiment.
+Milestone 2 has started with CSP+LDA/SVM comparison, an initial
+five-subject held-out generalization experiment, and the first validated
+bilateral (BOTH_HANDS vs BOTH_FEET) model achieving 96.67% accuracy for vertical
+cursor control.
 
 ## Completed tasks
 
@@ -25,6 +27,10 @@ five-subject held-out generalization experiment.
 - Added a fail-fast check for recordings from which amplitude rejection removes
   every task epoch, plus an explicit no-rejection sensitivity option.
 - Downloaded subjects 1--5 and recorded the first cross-subject comparison.
+- Downloaded Subject 1 bilateral imagery runs (runs 6, 10, 14) and validated
+  the BOTH_HANDS vs BOTH_FEET model (96.67% accuracy, 30 retained epochs).
+- Created the 2D cursor control integration guide (`docs/2D_CURSOR_INTEGRATION_GUIDE.md`)
+  for feeding dual binary models into real-time inference and cursor simulation.
 - Added an offline Streamlit dashboard for saved metrics, predictions,
   confusion matrices, fold scores, configuration, and dataset audits.
 - Added README, data instructions, experiment configuration, and this status
@@ -34,7 +40,8 @@ five-subject held-out generalization experiment.
 
 - Broaden the subject-held-out experiment beyond the initial five-subject
   subset and pre-specify artifact handling before treating it as a benchmark.
-- Run the supported BOTH_HANDS versus BOTH_FEET experiment.
+- Integrate the dual-model outputs (unilateral + bilateral) into BCIInferenceEngine
+  and 2D cursor simulator.
 
 ## Blocked or not yet supported
 

@@ -80,6 +80,35 @@ five-subject sensitivity result, not a broad subject-independent benchmark.
 The saved LDA artifacts are under
 `results/unilateral_subject5_lda_no_reject/`.
 
+## 2026-11-26 — Subject 1 bilateral baseline (BOTH_HANDS vs. BOTH_FEET)
+
+Dataset: PhysioNet EEGMMIDB, subject 1, runs 6/10/14 (imagined BOTH_HANDS versus
+BOTH_FEET). 64 channels at 160 Hz with `T1` BOTH_HANDS / `T2` BOTH_FEET.
+
+Command:
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/run_experiment.py \
+  --task bilateral --subjects 1 --runs 6 10 14 \
+  --output results/bilateral_lda_grouped
+```
+
+Configuration: 8–30 Hz band-pass, average reference, epochs 1–4 seconds after
+cue, 150 µV peak-to-peak rejection, four CSP components, shrinkage LDA,
+and Leave-One-Recording-Group-Out validation.
+
+Result: 30 retained epochs across 3 recording groups (`BOTH_FEET` 15, `BOTH_HANDS` 15).
+
+| Accuracy | Balanced accuracy | Macro F1 | Confusion matrix (`BOTH_FEET`, `BOTH_HANDS`) |
+|---:|---:|---:|---|
+| 96.67% | 96.67% | 96.66% | `[[14, 1], [0, 15]]` |
+
+Only 1 epoch was misclassified across all folds. This provides a high-confidence
+vertical control model (`BOTH_HANDS` for UP, `BOTH_FEET` for DOWN).
+
+Artifacts: `results/bilateral_lda_grouped/metrics.json`, `config.json`,
+`predictions.csv`, `confusion_matrix.png`, and `model.joblib`.
+
 ## Next planned experiment
 
 Run the supported bilateral imagery task on runs 6/10/14, reporting

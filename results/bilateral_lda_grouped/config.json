@@ -1,0 +1,80 @@
+{
+  "classes": [
+    "BOTH_FEET",
+    "BOTH_HANDS"
+  ],
+  "csp_components": 4,
+  "data_dir": "/home/epsilon/Projects/neuro_interface/data/physionet",
+  "dataset": "PhysioNet EEG Motor Movement/Imagery Database v1.0.0",
+  "grouping": "recording",
+  "model": "lda",
+  "n_channels": 64,
+  "n_epochs": 30,
+  "n_times": 481,
+  "preprocessing": {
+    "average_reference": true,
+    "h_freq": 30.0,
+    "l_freq": 8.0,
+    "reject_uV": 150.0,
+    "tmax": 4.0,
+    "tmin": 1.0
+  },
+  "run_metadata": [
+    {
+      "event_mapping": {
+        "T1": "BOTH_HANDS",
+        "T2": "BOTH_FEET"
+      },
+      "n_channels": 64,
+      "n_rejected_epochs": 5,
+      "n_retained_epochs": 10,
+      "n_selected_events": 15,
+      "n_times": 481,
+      "path": "/home/epsilon/Projects/neuro_interface/data/physionet/MNE-eegbci-data/files/eegmmidb/1.0.0/S001/S001R06.edf",
+      "run": 6,
+      "sfreq": 160.0,
+      "subject": 1
+    },
+    {
+      "event_mapping": {
+        "T1": "BOTH_HANDS",
+        "T2": "BOTH_FEET"
+      },
+      "n_channels": 64,
+      "n_rejected_epochs": 4,
+      "n_retained_epochs": 11,
+      "n_selected_events": 15,
+      "n_times": 481,
+      "path": "/home/epsilon/Projects/neuro_interface/data/physionet/MNE-eegbci-data/files/eegmmidb/1.0.0/S001/S001R10.edf",
+      "run": 10,
+      "sfreq": 160.0,
+      "subject": 1
+    },
+    {
+      "event_mapping": {
+        "T1": "BOTH_HANDS",
+        "T2": "BOTH_FEET"
+      },
+      "n_channels": 64,
+      "n_rejected_epochs": 6,
+      "n_retained_epochs": 9,
+      "n_selected_events": 15,
+      "n_times": 481,
+      "path": "/home/epsilon/Projects/neuro_interface/data/physionet/MNE-eegbci-data/files/eegmmidb/1.0.0/S001/S001R14.edf",
+      "run": 14,
+      "sfreq": 160.0,
+      "subject": 1
+    }
+  ],
+  "runs": [
+    6,
+    10,
+    14
+  ],
+  "sampling_rate_hz": 160.0,
+  "subjects": [
+    1
+  ],
+  "task": "bilateral",
+  "validation": "Leave-One-Recording-Group-Out; each group is subject/run"
+}

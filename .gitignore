@@ -34,3 +34,6 @@ results/**/model.joblib
 *.log
 .DS_Store
 
+# Private collaboration track notes
+TRACK.md
+
