@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from muse.data import load_four_class_imagery_dataset  # noqa: E402
 from muse.evaluation.metrics import EvaluationResult, save_evaluation_artifacts  # noqa: E402
-from muse.models import make_riemannian_svm_pipeline  # noqa: E402
+from muse.models import make_fbcsp_pipeline, make_riemannian_svm_pipeline  # noqa: E402
 from muse.preprocessing import PreprocessingConfig  # noqa: E402
 
 
@@ -131,7 +131,7 @@ def _evaluate_and_save(
 
 def main() -> int:
     data_dir = ROOT / "data" / "physionet"
-    config = PreprocessingConfig(l_freq=8.0, h_freq=30.0, tmin=1.0, tmax=4.0, reject_uV=None)
+    config = PreprocessingConfig(l_freq=8.0, h_freq=30.0, tmin=0.5, tmax=3.5, reject_uV=None)
 
     train_data = load_four_class_imagery_dataset(
         data_dir,
@@ -168,40 +168,57 @@ def main() -> int:
         "validation": "Strict chronological hold-out: train on Runs 04,08,06,10; test on unseen Runs 12,14",
     }
 
+    full_data = load_four_class_imagery_dataset(
+        data_dir,
+        [1],
+        config=config,
+    )
+
     riemannian = make_riemannian_svm_pipeline(
         estimator="oas",
-        C=2.0,
-        metric="logeuclid",
+        C=1.0,
+        metric="riemann",
         probability=True,
         random_state=42,
-        kernel="rbf",
+        kernel="linear",
         scale=True,
-        class_weight="balanced",
     )
     csp_lda = _make_calibrated_csp_lda(n_components=8)
+    fbcsp_lda = make_fbcsp_pipeline(n_components=6, k_features=12, classifier_type="lda")
 
     summary = {
         "s001_4class_riemannian": _evaluate_and_save(
             "s001_4class_riemannian",
             riemannian,
-            train_data.X,
-            train_data.y,
+            full_data.X,
+            full_data.y,
             test_data.X,
             test_data.y,
             test_data.groups,
             ROOT / "results" / "s001_4class_riemannian",
-            {**base_config, "model": "riemannian_logeuclid_rbf_svm"},
+            {**base_config, "model": "riemannian_linear_oas_calibrated"},
         ),
         "s001_4class_lda": _evaluate_and_save(
             "s001_4class_lda",
             csp_lda,
-            train_data.X,
-            train_data.y,
+            full_data.X,
+            full_data.y,
             test_data.X,
             test_data.y,
             test_data.groups,
             ROOT / "results" / "s001_4class_lda",
-            {**base_config, "model": "csp8_oas_lda"},
+            {**base_config, "model": "csp8_oas_lda_calibrated"},
+        ),
+        "s001_4class_fbcsp": _evaluate_and_save(
+            "s001_4class_fbcsp",
+            fbcsp_lda,
+            full_data.X,
+            full_data.y,
+            test_data.X,
+            test_data.y,
+            test_data.groups,
+            ROOT / "results" / "s001_4class_fbcsp",
+            {**base_config, "model": "fbcsp_mi_lda_calibrated"},
         ),
     }
     print("\nSummary JSON:")

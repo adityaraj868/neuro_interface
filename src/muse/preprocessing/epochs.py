@@ -10,16 +10,42 @@ import numpy as np
 from muse.event_mapping import labels_for_run
 
 
+SENSORIMOTOR_CHANNELS: tuple[str, ...] = (
+    "FC5",
+    "FC3",
+    "FC1",
+    "FCz",
+    "FC2",
+    "FC4",
+    "FC6",
+    "C5",
+    "C3",
+    "C1",
+    "Cz",
+    "C2",
+    "C4",
+    "C6",
+    "CP5",
+    "CP3",
+    "CP1",
+    "CPz",
+    "CP2",
+    "CP4",
+    "CP6",
+)
+
+
 @dataclass(frozen=True)
 class PreprocessingConfig:
     """Parameters that define the offline EEG preprocessing contract."""
 
     l_freq: float = 8.0
     h_freq: float = 30.0
-    tmin: float = 1.0
-    tmax: float = 4.0
+    tmin: float = 0.5
+    tmax: float = 3.5
     reject_uV: float | None = 150.0
     average_reference: bool = True
+    channels: str | tuple[str, ...] = "full"
 
     def __post_init__(self) -> None:
         if self.l_freq <= 0 or self.h_freq <= self.l_freq:
@@ -28,6 +54,8 @@ class PreprocessingConfig:
             raise ValueError("Epoch tmax must be greater than tmin.")
         if self.reject_uV is not None and self.reject_uV <= 0:
             raise ValueError("reject_uV must be positive or None to disable amplitude rejection.")
+        if isinstance(self.channels, str) and self.channels not in ("full", "sensorimotor"):
+            raise ValueError("channels must be 'full', 'sensorimotor', or a tuple of channel names.")
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -65,6 +93,16 @@ def epoch_raw(raw: Any, run: int, config: PreprocessingConfig) -> EpochBundle:
     )
     if config.average_reference:
         working.set_eeg_reference("average", projection=False, verbose=False)
+    if config.channels == "sensorimotor":
+        sm_names = set(SENSORIMOTOR_CHANNELS)
+        matching = [name for name in working.ch_names if name.rstrip(".").upper() in sm_names]
+        if len(matching) >= 2:
+            working.pick(matching)
+    elif isinstance(config.channels, (list, tuple)):
+        target = set(ch.rstrip(".").upper() for ch in config.channels)
+        matching = [name for name in working.ch_names if name.rstrip(".").upper() in target]
+        if len(matching) >= 2:
+            working.pick(matching)
     picks = mne.pick_types(working.info, eeg=True, meg=False, stim=False, eog=False, exclude="bads")
     if len(picks) < 2:
         raise ValueError("At least two usable EEG channels are required for CSP.")

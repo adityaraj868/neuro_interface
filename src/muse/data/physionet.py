@@ -74,6 +74,12 @@ def task_for_run(run: int) -> str:
         return "unilateral"
     if run in EEGBCI_BILATERAL_IMAGERY_RUNS:
         return "bilateral"
+    if run in EEGBCI_EXECUTED_UNILATERAL_RUNS or run in EEGBCI_EXECUTED_BILATERAL_RUNS:
+        raise ValueError(
+            f"Run {run} is a motor execution run. Motor imagery decoding requires "
+            f"imagery runs ({EEGBCI_UNILATERAL_IMAGERY_RUNS + EEGBCI_BILATERAL_IMAGERY_RUNS}). "
+            "Do not pool execution and imagery runs without explicit cross-modal alignment."
+        )
     raise ValueError(f"Run {run} is not an imagery run.")
 
 

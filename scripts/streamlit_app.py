@@ -34,6 +34,7 @@ BCIInferenceEngine = _rt_engine.BCIInferenceEngine
 
 ARENA_MODEL_OPTIONS: dict[str, str] = {
     "S001 Calibrated 4-Class Riemannian (Blind 4-Way)": "s001_4class_riemannian",
+    "S001 Calibrated 4-Class FBCSP + LDA (Blind 4-Way)": "s001_4class_fbcsp",
     "S001 Calibrated 4-Class CSP + LDA (Blind 4-Way)": "s001_4class_lda",
     "Unified 4-Class Riemannian (All Runs)": "four_class_riemannian",
     "Unified 4-Class CSP + LDA (All Runs)": "four_class_lda",
@@ -99,8 +100,8 @@ def extract_thought_epochs(data_dir: Path) -> dict[str, dict[str, Any]]:
             raw,
             selected_events,
             event_id=selected_id,
-            tmin=1.0,
-            tmax=4.0,
+            tmin=0.5,
+            tmax=3.5,
             baseline=None,
             picks=picks,
             reject=None,
@@ -158,6 +159,19 @@ def resolve_arena_models(
             model_path,
             None,
             "Loaded S001 calibrated 4-class Riemannian model (trained on Runs 04/08/06/10; tested blind on Runs 12/14)",
+        )
+
+    if model_key == "s001_4class_fbcsp":
+        model_path = results_dir / "s001_4class_fbcsp/model.joblib"
+        if not model_path.exists():
+            raise FileNotFoundError(
+                f"Missing Subject-1 calibrated 4-class FBCSP model: {model_path}. "
+                "Run `PYTHONPATH=src .venv/bin/python scripts/train_s001_4class.py`."
+            )
+        return (
+            model_path,
+            None,
+            "Loaded S001 calibrated 4-class Filter Bank CSP+LDA model (Runs 12/14 blind test)",
         )
 
     if model_key == "s001_4class_lda":
@@ -616,9 +630,11 @@ def main() -> None:
                 engine = BCIInferenceEngine(
                     horizontal_model_path=h_model,
                     vertical_model_path=v_model,
-                    threshold=0.55,
-                    deadband=0.15,
+                    threshold=0.50,
+                    deadband=0.10,
                     single_axis=True,
+                    smoothing_alpha=0.35,
+                    history_len=3,
                 )
                 filtered_epoch = engine._preprocess(epoch)
                 t0 = time.perf_counter()
@@ -816,7 +832,7 @@ def main() -> None:
 
                     filtered_uv = last_trial["filtered_epoch"] * 1e6
                     n_times = filtered_uv.shape[1]
-                    time_axis = np.linspace(1.0, 4.0, n_times)
+                    time_axis = np.linspace(0.5, 3.5, n_times)
                     wave_df = pd.DataFrame(
                         {
                             "Time (s)": time_axis,
@@ -826,14 +842,14 @@ def main() -> None:
                         }
                     )
                     st.caption(
-                        f"`[1.0s – 4.0s]`, {n_times} samples @ {last_trial['sfreq']:.0f} Hz — "
+                        f"`[0.5s – 3.5s]`, {n_times} samples @ {last_trial['sfreq']:.0f} Hz — "
                         f"`{last_trial['source_file']}` Trial #{last_trial['trial_index']}"
                     )
                     st.line_chart(
                         wave_df,
                         x="Time (s)",
                         y=["C3 (Left Motor)", "Cz (Midline)", "C4 (Right Motor)"],
-                        x_label="Time (s) [1.0s – 4.0s]",
+                        x_label="Time (s) [0.5s – 3.5s]",
                         y_label="Amplitude (µV)",
                         height=240,
                     )
@@ -854,9 +870,11 @@ def main() -> None:
                 engine = BCIInferenceEngine(
                     horizontal_model_path=h_model,
                     vertical_model_path=v_model,
-                    threshold=0.55,
-                    deadband=0.15,
+                    threshold=0.50,
+                    deadband=0.10,
                     single_axis=True,
+                    smoothing_alpha=0.35,
+                    history_len=3,
                 )
                 streamer = MockEEGStreamer(edf_file, chunk_size=16)
                 ring_buf = SlidingRingBuffer(n_channels=64, window_samples=481)
