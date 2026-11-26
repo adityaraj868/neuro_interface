@@ -363,7 +363,7 @@ When demonstrating the live simulator, evaluators often notice that the cursor m
 > **Answer:** In cross-subject transfer learning, each subject's EEG has a different mean covariance matrix $\bar{R}$ due to varying skull thickness and electrode impedance. Euclidean Alignment whitens each subject's trials by multiplying by $\bar{R}^{-1/2}$: $\tilde{X}_i = \bar{R}^{-1/2} X_i$. This centers all subjects at the identity matrix in covariance space, enabling multi-subject training.
 
 ### Q10: How did you evaluate your models to guarantee zero data leakage?
-> **Answer:** We used 5-fold Stratified Cross-Validation strictly fitting all spatial filters (CSP), covariance estimators, feature selectors, and classifiers on training folds only, and transforming test folds out-of-sample. No test fold data was ever used for spatial filter calibration or covariance centering.
+> **Answer:** We enforced a strict chronological hold-out protocol. The models were trained and calibrated exclusively on Subject 1's early runs (Runs 04, 06, 08, 10; 60 trials). Runs 12 and 14 (30 trials) were completely held out and never seen during training, reserved exclusively for out-of-sample evaluation and the live GUI simulator. In addition, when computing within-session cross-validation, all spatial filters (CSP), covariance estimators, and classifiers were fit strictly on training folds and transformed out-of-fold. Zero test data was ever used for training.
 
 ### Q11: What is the chance level of your models?
 > **Answer:** For our 4-class models (`LEFT`, `RIGHT`, `BOTH_HANDS`, `BOTH_FEET`), the theoretical chance level is **25.0%** ($1/4$). For binary models (`LEFT` vs `RIGHT`), it is **50.0%**.
