@@ -158,7 +158,7 @@ def resolve_arena_models(
         return (
             model_path,
             None,
-            "Loaded S001 calibrated 4-class Riemannian model (trained on Runs 04/08/06/10; tested blind on Runs 12/14)",
+            "Loaded S001 calibrated 4-class Riemannian model (5-fold Stratified CV; calibrated on Runs 04/06/08/10/12/14)",
         )
 
     if model_key == "s001_4class_fbcsp":
@@ -171,7 +171,7 @@ def resolve_arena_models(
         return (
             model_path,
             None,
-            "Loaded S001 calibrated 4-class Filter Bank CSP+LDA model (Runs 12/14 blind test)",
+            "Loaded S001 calibrated 4-class Filter Bank CSP+LDA model (5-fold Stratified CV)",
         )
 
     if model_key == "s001_4class_lda":
@@ -184,7 +184,7 @@ def resolve_arena_models(
         return (
             model_path,
             None,
-            "Loaded S001 calibrated 4-class CSP+LDA model (trained on Runs 04/08/06/10; tested blind on Runs 12/14)",
+            "Loaded S001 calibrated 4-class CSP+LDA model (5-fold Stratified CV)",
         )
 
     if model_key == "four_class_riemannian":
