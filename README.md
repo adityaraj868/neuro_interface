@@ -137,7 +137,7 @@ Always use `uv` for project management:
 ### 1. Environment Setup
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/neuro_interface.git
+git clone https://github.com/adityaraj868/neuro_interface.git
 cd neuro_interface
 
 # Create and activate virtual environment
