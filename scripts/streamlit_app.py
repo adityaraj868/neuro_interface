@@ -34,14 +34,9 @@ if "filter_data" not in inspect.getsource(_rt_engine.BCIInferenceEngine._preproc
 BCIInferenceEngine = _rt_engine.BCIInferenceEngine
 
 ARENA_MODEL_OPTIONS: dict[str, str] = {
-    "S001 Calibrated 4-Class Riemannian (Blind 4-Way)": "s001_4class_riemannian",
-    "S001 Calibrated 4-Class FBCSP + LDA (Blind 4-Way)": "s001_4class_fbcsp",
-    "S001 Calibrated 4-Class CSP + LDA (Blind 4-Way)": "s001_4class_lda",
-    "Unified 4-Class Riemannian (All Runs)": "four_class_riemannian",
-    "Unified 4-Class CSP + LDA (All Runs)": "four_class_lda",
-    "Dual Binary CSP + LDA": "csp_lda",
-    "Dual Binary Riemannian (Tangent Space + SVM)": "riemannian",
-    "Dual Binary EEGNet (CNN)": "eegnet",
+    "Calibrated 4-Class Riemannian (Iteration 3: Flagship Manifold)": "s001_4class_riemannian",
+    "Calibrated 4-Class CSP + LDA (Iteration 2: Single Multiclass)": "s001_4class_lda",
+    "Dual Binary CSP + LDA (Iteration 1: Orthogonal Gating)": "csp_lda",
 }
 
 ARENA_TARGETS: list[tuple[float, float]] = [
