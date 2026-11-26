@@ -1,0 +1,17 @@
+# EEGNet Hyperparameters & Training Settings
+eegnet:
+  n_classes: 2
+  n_channels: 64
+  n_times: 481
+  F1: 8
+  D: 2
+  F2: 16
+  kernel_length: 64
+  dropout_rate: 0.5
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  batch_size: 16
+  epochs: 80
+  patience: 15
+  val_split: 0.15
+  random_state: 42
