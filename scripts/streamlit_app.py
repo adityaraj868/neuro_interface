@@ -16,6 +16,7 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
+import streamlit as st
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -307,10 +308,10 @@ def _render_arena_svg(
         '<text x="200" y="395" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="sans-serif">DOWN (BOTH FEET)</text>'
         '<text x="12" y="204" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="sans-serif" transform="rotate(-90 12,204)">LEFT</text>'
         '<text x="390" y="204" fill="#94a3b8" font-size="11" text-anchor="middle" font-family="sans-serif" transform="rotate(90 390,204)">RIGHT</text>'
-        f'<circle cx="{tcx:.1f}" cy="{tcy:.1f}" r="26" fill="rgba(16, 185, 129, 0.22)" stroke="#10b981" stroke-width="2.5"/>'
-        f'<circle cx="{tcx:.1f}" cy="{tcy:.1f}" r="5" fill="#10b981"/>'
-        f'<polyline fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-opacity="0.65" points="{trail_pts}"/>'
-        f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="11" fill="#38bdf8" stroke="#ffffff" stroke-width="2.5"/>'
+        f'<circle cx="{tcx:.1f}" cy="{tcy:.1f}" r="26" fill="rgba(16, 185, 129, 0.22)" stroke="#10b981" stroke-width="2.5" style="transition: all 0.3s ease;"/>'
+        f'<circle cx="{tcx:.1f}" cy="{tcy:.1f}" r="5" fill="#10b981" style="transition: all 0.3s ease;"/>'
+        f'<polyline fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-opacity="0.65" points="{trail_pts}" style="transition: points 0.2s ease-out;"/>'
+        f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="11" fill="#38bdf8" stroke="#ffffff" stroke-width="2.5" style="transition: cx 0.22s cubic-bezier(0.25, 1, 0.5, 1), cy 0.22s cubic-bezier(0.25, 1, 0.5, 1);"/>'
         f'<text x="32" y="38" fill="#e2e8f0" font-size="12" font-family="monospace">Targets Hit: {hits}</text>'
         "</svg>"
         "</div>"
@@ -455,481 +456,489 @@ def main() -> None:
             st.dataframe(pd.DataFrame(audit_rows), hide_index=True, width="stretch")
 
     with live_tab:
-        st.subheader("Live 2D Motor Imagery Cursor & Target-Reaching Game")
+        _render_live_bci_arena(results_dir)
 
-        top_col1, top_col2 = st.columns([1.3, 1.2])
-        with top_col1:
-            arena_mode = st.segmented_control(
-                "Arena Mode",
-                ["Interactive 4-Direction Simulator", "Continuous 160 Hz Stream Replay"],
-                default="Interactive 4-Direction Simulator",
+
+@st.cache_resource(show_spinner=False)
+def _cached_arena_models(selected_key: str, res_dir_str: str) -> tuple[Path, Path | None, str]:
+    return resolve_arena_models(
+        selected_key,
+        Path(res_dir_str),
+        ROOT / "data" / "physionet",
+    )
+
+
+@st.cache_data(show_spinner=False)
+def _cached_thought_epochs(data_dir_str: str) -> dict[str, dict[str, Any]]:
+    return extract_thought_epochs(Path(data_dir_str))
+
+
+def _reset_arena_state() -> None:
+    st.session_state["arena_x"] = 0.0
+    st.session_state["arena_y"] = 0.0
+    st.session_state["arena_tx"] = ARENA_TARGETS[0][0]
+    st.session_state["arena_ty"] = ARENA_TARGETS[0][1]
+    st.session_state["arena_trail"] = [(0.0, 0.0)]
+    st.session_state["arena_hits"] = 0
+    st.session_state["arena_last_trial"] = None
+    st.session_state["session_trials"] = []
+
+
+@st.fragment
+def _render_live_bci_arena(results_dir: Path) -> None:
+    st.subheader("Live 2D Motor Imagery Cursor & Target-Reaching Game")
+
+    top_col1, top_col2 = st.columns([1.3, 1.2])
+    with top_col1:
+        arena_mode = st.segmented_control(
+            "Arena Mode",
+            ["Interactive 4-Direction Simulator", "Continuous 160 Hz Stream Replay"],
+            default="Interactive 4-Direction Simulator",
+        )
+        if arena_mode is None:
+            arena_mode = "Interactive 4-Direction Simulator"
+    with top_col2:
+        model_label = st.selectbox(
+            "Model Architecture",
+            list(ARENA_MODEL_OPTIONS.keys()),
+            help="Hot-swap between Subject-1 calibrated 4-class models, CSP+LDA, Riemannian, and EEGNet decoders.",
+        )
+        model_key = ARENA_MODEL_OPTIONS[model_label]
+
+    alpha = 0.35
+    duration_sec = 12
+    stream_mode = "Held-Out Vertical Imagery (S001R14: Both Fists vs Both Feet)"
+    start_btn = False
+
+    if arena_mode == "Continuous 160 Hz Stream Replay":
+        stream_col1, stream_col2, stream_col3, stream_col4 = st.columns([1.8, 1, 1, 1])
+        with stream_col1:
+            stream_mode = st.selectbox(
+                "EEG Stream Run",
+                [
+                    "Held-Out Vertical Imagery (S001R14: Both Fists vs Both Feet)",
+                    "Held-Out Horizontal Imagery (S001R12: Left Fist vs Right Fist)",
+                    "Vertical Imagery (S001R06: Both Fists vs Both Feet)",
+                    "Horizontal Imagery (S001R04: Left Fist vs Right Fist)",
+                    "Vertical Imagery (S001R10: Both Fists vs Both Feet)",
+                    "Horizontal Imagery (S001R08: Left Fist vs Right Fist)",
+                ],
             )
-            if arena_mode is None:
-                arena_mode = "Interactive 4-Direction Simulator"
-        with top_col2:
-            model_label = st.selectbox(
-                "Model Architecture",
-                list(ARENA_MODEL_OPTIONS.keys()),
-                help="Hot-swap between Subject-1 calibrated 4-class models, CSP+LDA, Riemannian, and EEGNet decoders.",
+        with stream_col2:
+            alpha = st.slider("Smoothing (α)", min_value=0.10, max_value=0.80, value=0.35, step=0.05)
+        with stream_col3:
+            duration_sec = st.slider("Run Duration (s)", min_value=5, max_value=30, value=12, step=1)
+        with stream_col4:
+            st.write("")
+            start_btn = st.button("▶ Start Live Session", type="primary", width="stretch")
+
+    st.caption(
+        f"Mode: **{arena_mode}** · 481-sample (3.0s @ 160 Hz) window · "
+        f"Single-Axis Winner-Take-All `{model_label}` Inference (`axis_lock=\"AUTO\"`)"
+    )
+
+    if "arena_x" not in st.session_state:
+        _reset_arena_state()
+    if "session_trials" not in st.session_state:
+        st.session_state["session_trials"] = []
+
+    run_map = {
+        "Held-Out Vertical Imagery (S001R14: Both Fists vs Both Feet)": ROOT
+        / "data/physionet/MNE-eegbci-data/files/eegmmidb/1.0.0/S001/S001R14.edf",
+        "Held-Out Horizontal Imagery (S001R12: Left Fist vs Right Fist)": ROOT
+        / "data/physionet/MNE-eegbci-data/files/eegmmidb/1.0.0/S001/S001R12.edf",
+        "Vertical Imagery (S001R06: Both Fists vs Both Feet)": ROOT
+        / "data/physionet/MNE-eegbci-data/files/eegmmidb/1.0.0/S001/S001R06.edf",
+        "Horizontal Imagery (S001R04: Left Fist vs Right Fist)": ROOT
+        / "data/physionet/MNE-eegbci-data/files/eegmmidb/1.0.0/S001/S001R04.edf",
+        "Vertical Imagery (S001R10: Both Fists vs Both Feet)": ROOT
+        / "data/physionet/MNE-eegbci-data/files/eegmmidb/1.0.0/S001/S001R10.edf",
+        "Horizontal Imagery (S001R08: Left Fist vs Right Fist)": ROOT
+        / "data/physionet/MNE-eegbci-data/files/eegmmidb/1.0.0/S001/S001R08.edf",
+    }
+
+    arena_col, telemetry_col = st.columns([1.05, 1.15])
+    with arena_col:
+        arena_slot = st.empty()
+        scorecard_slot = st.empty()
+
+        think_up = think_down = think_left = think_right = False
+        reset_arena = False
+        if arena_mode == "Interactive 4-Direction Simulator":
+            st.markdown("#### 4-Direction Thought Simulator (Unseen Held-Out Trials)")
+            st.caption(
+                "Sample a real held-out `(64, 481)` EEG epoch from `S001R12.edf` / `S001R14.edf` "
+                "and run blind 4-way inference (`axis_lock=\"AUTO\"`)."
             )
-            model_key = ARENA_MODEL_OPTIONS[model_label]
+            dpad_r1_c1, dpad_r1_c2, dpad_r1_c3 = st.columns(3)
+            with dpad_r1_c2:
+                think_up = st.button("⬆️ Think UP (Both Fists)", width="stretch")
 
-        alpha = 0.35
-        duration_sec = 12
-        stream_mode = "Held-Out Vertical Imagery (S001R14: Both Fists vs Both Feet)"
-        start_btn = False
+            dpad_r2_c1, dpad_r2_c2, dpad_r2_c3 = st.columns(3)
+            with dpad_r2_c1:
+                think_left = st.button("⬅️ Think LEFT (Left Fist)", width="stretch")
+            with dpad_r2_c2:
+                reset_arena = st.button("Reset Arena", width="stretch")
+            with dpad_r2_c3:
+                think_right = st.button("➡️ Think RIGHT (Right Fist)", width="stretch")
 
-        if arena_mode == "Continuous 160 Hz Stream Replay":
-            stream_col1, stream_col2, stream_col3, stream_col4 = st.columns([1.8, 1, 1, 1])
-            with stream_col1:
-                stream_mode = st.selectbox(
-                    "EEG Stream Run",
-                    [
-                        "Held-Out Vertical Imagery (S001R14: Both Fists vs Both Feet)",
-                        "Held-Out Horizontal Imagery (S001R12: Left Fist vs Right Fist)",
-                        "Vertical Imagery (S001R06: Both Fists vs Both Feet)",
-                        "Horizontal Imagery (S001R04: Left Fist vs Right Fist)",
-                        "Vertical Imagery (S001R10: Both Fists vs Both Feet)",
-                        "Horizontal Imagery (S001R08: Left Fist vs Right Fist)",
-                    ],
+            dpad_r3_c1, dpad_r3_c2, dpad_r3_c3 = st.columns(3)
+            with dpad_r3_c2:
+                think_down = st.button("⬇️ Think DOWN (Both Feet)", width="stretch")
+
+    with telemetry_col:
+        model_status_slot = st.empty()
+        trial_status_slot = st.empty()
+        metrics_slot = st.empty()
+        probs_slot = st.empty()
+        inspector_slot = st.empty()
+
+    try:
+        with st.spinner(f"Preparing {model_label} decoder..."):
+            h_model, v_model, model_source = _cached_arena_models(model_key, str(results_dir))
+        gating_desc = (
+            "True Blind 4-Way (axis_lock='AUTO', Single-Axis WTA)"
+            if v_model is None
+            else "Dual-Binary Orthogonal WTA (axis_lock='AUTO')"
+        )
+        model_status_slot.info(
+            f"**Active Decoder:** {model_label}  \n"
+            f"**Source:** {model_source}  \n"
+            f"**Gating:** {gating_desc}"
+        )
+        models_ready = True
+    except Exception as exc:
+        model_status_slot.error(f"Could not prepare {model_label} models: {exc}")
+        models_ready = False
+
+    if reset_arena:
+        _reset_arena_state()
+
+    thought_trigger = None
+    if think_up:
+        thought_trigger = ("UP", "UP (BOTH_HANDS)")
+    elif think_down:
+        thought_trigger = ("DOWN", "DOWN (BOTH_FEET)")
+    elif think_left:
+        thought_trigger = ("LEFT", "LEFT")
+    elif think_right:
+        thought_trigger = ("RIGHT", "RIGHT")
+
+    if thought_trigger is not None:
+        pool_key, ground_truth_label = thought_trigger
+        if not models_ready:
+            st.error("Models are not ready for thought simulation.")
+        else:
+            epoch_pools = _cached_thought_epochs(str(ROOT / "data" / "physionet"))
+            pool_bundle = epoch_pools[pool_key]
+            pool_X = pool_bundle["X"]
+            sample_idx = random.randrange(len(pool_X))
+            epoch = pool_X[sample_idx]
+            trial_meta = pool_bundle["meta"][sample_idx]
+
+            engine = BCIInferenceEngine(
+                horizontal_model_path=h_model,
+                vertical_model_path=v_model,
+                threshold=0.50,
+                deadband=0.10,
+                single_axis=True,
+                smoothing_alpha=0.35,
+                history_len=3,
+            )
+            filtered_epoch = engine._preprocess(epoch)
+            t0 = time.perf_counter()
+            res = engine.predict_window(epoch, axis_lock="AUTO")
+            lat_ms = (time.perf_counter() - t0) * 1000.0
+
+            c3_idx = pool_bundle["c3_idx"]
+            cz_idx = pool_bundle["cz_idx"]
+            c4_idx = pool_bundle["c4_idx"]
+            filtered_uv = filtered_epoch * 1e6
+            bandpower_uv2 = {
+                "C3": float(np.mean(filtered_uv[c3_idx] ** 2)),
+                "Cz": float(np.mean(filtered_uv[cz_idx] ** 2)),
+                "C4": float(np.mean(filtered_uv[c4_idx] ** 2)),
+            }
+            rms_uv = {
+                "C3": float(np.sqrt(bandpower_uv2["C3"])),
+                "Cz": float(np.sqrt(bandpower_uv2["Cz"])),
+                "C4": float(np.sqrt(bandpower_uv2["C4"])),
+            }
+
+            x = max(-95.0, min(95.0, st.session_state["arena_x"] + alpha * res["vx"] * 35.0))
+            y = max(-95.0, min(95.0, st.session_state["arena_y"] + alpha * res["vy"] * 35.0))
+            tx = st.session_state["arena_tx"]
+            ty = st.session_state["arena_ty"]
+            hits = st.session_state["arena_hits"]
+            trail = list(st.session_state["arena_trail"])
+            trail.append((x, y))
+
+            if math.hypot(x - tx, y - ty) <= 22.0:
+                hits += 1
+                tx, ty = random.choice([t for t in ARENA_TARGETS if t != (tx, ty)])
+
+            if res["h_command"] in ("LEFT", "RIGHT"):
+                predicted_label = res["h_command"]
+            elif res["v_command"] == "UP":
+                predicted_label = "UP (BOTH_HANDS)"
+            elif res["v_command"] == "DOWN":
+                predicted_label = "DOWN (BOTH_FEET)"
+            else:
+                predicted_label = "NEUTRAL"
+
+            matched = predicted_label == ground_truth_label
+            conf_pct = (
+                max(res["probabilities"].values()) * 100.0 if res["probabilities"] else 0.0
+            )
+            trials = list(st.session_state["session_trials"])
+            trials.append(
+                {
+                    "Trial #": len(trials) + 1,
+                    "Source EDF": trial_meta["source_file"],
+                    "Ground Truth": ground_truth_label,
+                    "Blind Prediction": predicted_label,
+                    "Match": "✅" if matched else "❌",
+                    "Confidence %": f"{conf_pct:.1f}%",
+                    "Latency (ms)": round(lat_ms, 1),
+                }
+            )
+            st.session_state["session_trials"] = trials
+
+            st.session_state["arena_x"] = x
+            st.session_state["arena_y"] = y
+            st.session_state["arena_tx"] = tx
+            st.session_state["arena_ty"] = ty
+            st.session_state["arena_trail"] = trail
+            st.session_state["arena_hits"] = hits
+            st.session_state["arena_last_trial"] = {
+                "source_file": trial_meta["source_file"],
+                "trial_index": trial_meta["trial_index"],
+                "event_code": trial_meta["event_code"],
+                "ground_truth": ground_truth_label,
+                "shape": tuple(epoch.shape),
+                "sfreq": float(trial_meta["sfreq"]),
+                "filtered_epoch": filtered_epoch,
+                "c3_idx": c3_idx,
+                "cz_idx": cz_idx,
+                "c4_idx": c4_idx,
+                "bandpower_uv2": bandpower_uv2,
+                "rms_uv": rms_uv,
+                "predicted": predicted_label,
+                "matched": matched,
+                "h_command": res["h_command"],
+                "v_command": res["v_command"],
+                "vx": res["vx"],
+                "vy": res["vy"],
+                "latency_ms": lat_ms,
+                "probabilities": res["probabilities"],
+                "model_label": model_label,
+            }
+
+    def _render_telemetry(
+        lat_ms: float,
+        h_cmd: str,
+        v_cmd: str,
+        vx: float,
+        vy: float,
+        hits: int,
+        probs: dict[str, float],
+    ) -> None:
+        with metrics_slot.container():
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Latency", f"{lat_ms:.1f} ms")
+            m2.metric("Horizontal", h_cmd, f"vx={vx:+.2f}")
+            m3.metric("Vertical", v_cmd, f"vy={vy:+.2f}")
+            st.metric("Targets Reached", hits)
+
+        with probs_slot.container():
+            st.markdown("**Live Class Probabilities**")
+            for label in ["LEFT", "RIGHT", "BOTH_HANDS", "BOTH_FEET"]:
+                val = probs.get(label, 0.0)
+                st.progress(
+                    min(1.0, max(0.0, val)),
+                    text=f"{label}: {val * 100:.1f}%",
                 )
-            with stream_col2:
-                alpha = st.slider("Smoothing (α)", min_value=0.10, max_value=0.80, value=0.35, step=0.05)
-            with stream_col3:
-                duration_sec = st.slider("Run Duration (s)", min_value=5, max_value=30, value=12, step=1)
-            with stream_col4:
-                st.write("")
-                start_btn = st.button("▶ Start Live Session", type="primary", width="stretch")
 
-        st.caption(
-            f"Mode: **{arena_mode}** · 481-sample (3.0s @ 160 Hz) window · "
-            f"Single-Axis Winner-Take-All `{model_label}` Inference (`axis_lock=\"AUTO\"`)"
+    arena_slot.markdown(
+        _render_arena_svg(
+            st.session_state["arena_x"],
+            st.session_state["arena_y"],
+            st.session_state["arena_tx"],
+            st.session_state["arena_ty"],
+            st.session_state["arena_trail"],
+            st.session_state["arena_hits"],
+        ),
+        unsafe_allow_html=True,
+    )
+
+    session_trials = st.session_state["session_trials"]
+    with scorecard_slot.container():
+        sc1, sc2, sc3 = st.columns(3)
+        if session_trials:
+            n_correct = sum(1 for row in session_trials if row["Match"] == "✅")
+            n_total = len(session_trials)
+            mean_lat = sum(float(row["Latency (ms)"]) for row in session_trials) / n_total
+            sc1.metric(
+                "Blind Session Accuracy",
+                f"{n_correct / n_total:.0%} ({n_correct}/{n_total})",
+                border=True,
+            )
+            sc2.metric("Targets Hit", st.session_state["arena_hits"], border=True)
+            sc3.metric("Mean Latency", f"{mean_lat:.1f} ms", border=True)
+        else:
+            sc1.metric("Blind Session Accuracy", "—", border=True)
+            sc2.metric("Targets Hit", st.session_state["arena_hits"], border=True)
+            sc3.metric("Mean Latency", "—", border=True)
+
+    last_trial = st.session_state.get("arena_last_trial")
+    if last_trial is not None:
+        status_badge = "✅ Match" if last_trial["matched"] else "❌ Misclassified"
+        summary_msg = (
+            f"**{status_badge}** — **Ground Truth:** `{last_trial['ground_truth']}` | "
+            f"**Blind Model Prediction ({last_trial['model_label']}):** `{last_trial['predicted']}`"
+        )
+        if last_trial["matched"]:
+            trial_status_slot.success(summary_msg)
+        else:
+            trial_status_slot.warning(summary_msg)
+        _render_telemetry(
+            last_trial["latency_ms"],
+            last_trial["h_command"],
+            last_trial["v_command"],
+            last_trial["vx"],
+            last_trial["vy"],
+            st.session_state["arena_hits"],
+            last_trial["probabilities"],
         )
 
-        @st.cache_resource(show_spinner=False)
-        def _cached_arena_models(selected_key: str, res_dir_str: str) -> tuple[Path, Path | None, str]:
-            return resolve_arena_models(
-                selected_key,
-                Path(res_dir_str),
-                ROOT / "data" / "physionet",
-            )
-
-        @st.cache_data(show_spinner=False)
-        def _cached_thought_epochs(data_dir_str: str) -> dict[str, dict[str, Any]]:
-            return extract_thought_epochs(Path(data_dir_str))
-
-        def _reset_arena_state() -> None:
-            st.session_state["arena_x"] = 0.0
-            st.session_state["arena_y"] = 0.0
-            st.session_state["arena_tx"] = ARENA_TARGETS[0][0]
-            st.session_state["arena_ty"] = ARENA_TARGETS[0][1]
-            st.session_state["arena_trail"] = [(0.0, 0.0)]
-            st.session_state["arena_hits"] = 0
-            st.session_state["arena_last_trial"] = None
-            st.session_state["session_trials"] = []
-
-        if "arena_x" not in st.session_state:
-            _reset_arena_state()
-        if "session_trials" not in st.session_state:
-            st.session_state["session_trials"] = []
-
-        run_map = {
-            "Held-Out Vertical Imagery (S001R14: Both Fists vs Both Feet)": ROOT
-            / "data/physionet/MNE-eegbci-data/files/eegmmidb/1.0.0/S001/S001R14.edf",
-            "Held-Out Horizontal Imagery (S001R12: Left Fist vs Right Fist)": ROOT
-            / "data/physionet/MNE-eegbci-data/files/eegmmidb/1.0.0/S001/S001R12.edf",
-            "Vertical Imagery (S001R06: Both Fists vs Both Feet)": ROOT
-            / "data/physionet/MNE-eegbci-data/files/eegmmidb/1.0.0/S001/S001R06.edf",
-            "Horizontal Imagery (S001R04: Left Fist vs Right Fist)": ROOT
-            / "data/physionet/MNE-eegbci-data/files/eegmmidb/1.0.0/S001/S001R04.edf",
-            "Vertical Imagery (S001R10: Both Fists vs Both Feet)": ROOT
-            / "data/physionet/MNE-eegbci-data/files/eegmmidb/1.0.0/S001/S001R10.edf",
-            "Horizontal Imagery (S001R08: Left Fist vs Right Fist)": ROOT
-            / "data/physionet/MNE-eegbci-data/files/eegmmidb/1.0.0/S001/S001R08.edf",
-        }
-
-        arena_col, telemetry_col = st.columns([1.05, 1.15])
-        with arena_col:
-            arena_slot = st.empty()
-            scorecard_slot = st.empty()
-
-            think_up = think_down = think_left = think_right = False
-            reset_arena = False
-            if arena_mode == "Interactive 4-Direction Simulator":
-                st.markdown("#### 4-Direction Thought Simulator (Unseen Held-Out Trials)")
-                st.caption(
-                    "Sample a real held-out `(64, 481)` EEG epoch from `S001R12.edf` / `S001R14.edf` "
-                    "and run blind 4-way inference (`axis_lock=\"AUTO\"`)."
+        with inspector_slot.container():
+            st.markdown("#### Sampled EEG Trial Inspector (Live Dataset Proof)")
+            with st.container(border=True):
+                st.markdown(f"**Trial Provenance** — {status_badge}")
+                prov_col1, prov_col2 = st.columns(2)
+                prov_col1.markdown(
+                    f"- **Source EDF:** `{last_trial['source_file']}`\n"
+                    f"- **Trial Index:** `#{last_trial['trial_index']}`\n"
+                    f"- **Event Marker:** `{last_trial['event_code']}`"
                 )
-                dpad_r1_c1, dpad_r1_c2, dpad_r1_c3 = st.columns(3)
-                with dpad_r1_c2:
-                    think_up = st.button("⬆️ Think UP (Both Fists)", width="stretch")
-
-                dpad_r2_c1, dpad_r2_c2, dpad_r2_c3 = st.columns(3)
-                with dpad_r2_c1:
-                    think_left = st.button("⬅️ Think LEFT (Left Fist)", width="stretch")
-                with dpad_r2_c2:
-                    reset_arena = st.button("Reset Arena", width="stretch")
-                with dpad_r2_c3:
-                    think_right = st.button("➡️ Think RIGHT (Right Fist)", width="stretch")
-
-                dpad_r3_c1, dpad_r3_c2, dpad_r3_c3 = st.columns(3)
-                with dpad_r3_c2:
-                    think_down = st.button("⬇️ Think DOWN (Both Feet)", width="stretch")
-
-        with telemetry_col:
-            model_status_slot = st.empty()
-            trial_status_slot = st.empty()
-            metrics_slot = st.empty()
-            probs_slot = st.empty()
-            inspector_slot = st.empty()
-
-        try:
-            with st.spinner(f"Preparing {model_label} decoder..."):
-                h_model, v_model, model_source = _cached_arena_models(model_key, str(results_dir))
-            gating_desc = (
-                "True Blind 4-Way (axis_lock='AUTO', Single-Axis WTA)"
-                if v_model is None
-                else "Dual-Binary Orthogonal WTA (axis_lock='AUTO')"
-            )
-            model_status_slot.info(
-                f"**Active Decoder:** {model_label}  \n"
-                f"**Source:** {model_source}  \n"
-                f"**Gating:** {gating_desc}"
-            )
-            models_ready = True
-        except Exception as exc:
-            model_status_slot.error(f"Could not prepare {model_label} models: {exc}")
-            models_ready = False
-
-        if reset_arena:
-            _reset_arena_state()
-
-        thought_trigger = None
-        if think_up:
-            thought_trigger = ("UP", "UP (BOTH_HANDS)")
-        elif think_down:
-            thought_trigger = ("DOWN", "DOWN (BOTH_FEET)")
-        elif think_left:
-            thought_trigger = ("LEFT", "LEFT")
-        elif think_right:
-            thought_trigger = ("RIGHT", "RIGHT")
-
-        if thought_trigger is not None:
-            pool_key, ground_truth_label = thought_trigger
-            if not models_ready:
-                st.error("Models are not ready for thought simulation.")
-            else:
-                epoch_pools = _cached_thought_epochs(str(ROOT / "data" / "physionet"))
-                pool_bundle = epoch_pools[pool_key]
-                pool_X = pool_bundle["X"]
-                sample_idx = random.randrange(len(pool_X))
-                epoch = pool_X[sample_idx]
-                trial_meta = pool_bundle["meta"][sample_idx]
-
-                engine = BCIInferenceEngine(
-                    horizontal_model_path=h_model,
-                    vertical_model_path=v_model,
-                    threshold=0.50,
-                    deadband=0.10,
-                    single_axis=True,
-                    smoothing_alpha=0.35,
-                    history_len=3,
+                prov_col2.markdown(
+                    f"- **Tensor Shape:** `{last_trial['shape']}`\n"
+                    f"- **Sampling Rate:** `{last_trial['sfreq']:.0f} Hz`\n"
+                    f"- **Inference Latency:** `{last_trial['latency_ms']:.1f} ms`"
                 )
-                filtered_epoch = engine._preprocess(epoch)
-                t0 = time.perf_counter()
-                res = engine.predict_window(epoch, axis_lock="AUTO")
-                lat_ms = (time.perf_counter() - t0) * 1000.0
-
-                c3_idx = pool_bundle["c3_idx"]
-                cz_idx = pool_bundle["cz_idx"]
-                c4_idx = pool_bundle["c4_idx"]
-                filtered_uv = filtered_epoch * 1e6
-                bandpower_uv2 = {
-                    "C3": float(np.mean(filtered_uv[c3_idx] ** 2)),
-                    "Cz": float(np.mean(filtered_uv[cz_idx] ** 2)),
-                    "C4": float(np.mean(filtered_uv[c4_idx] ** 2)),
-                }
-                rms_uv = {
-                    "C3": float(np.sqrt(bandpower_uv2["C3"])),
-                    "Cz": float(np.sqrt(bandpower_uv2["Cz"])),
-                    "C4": float(np.sqrt(bandpower_uv2["C4"])),
-                }
-
-                x = max(-95.0, min(95.0, st.session_state["arena_x"] + alpha * res["vx"] * 35.0))
-                y = max(-95.0, min(95.0, st.session_state["arena_y"] + alpha * res["vy"] * 35.0))
-                tx = st.session_state["arena_tx"]
-                ty = st.session_state["arena_ty"]
-                hits = st.session_state["arena_hits"]
-                trail = list(st.session_state["arena_trail"])
-                trail.append((x, y))
-
-                if math.hypot(x - tx, y - ty) <= 22.0:
-                    hits += 1
-                    tx, ty = random.choice([t for t in ARENA_TARGETS if t != (tx, ty)])
-
-                if res["h_command"] in ("LEFT", "RIGHT"):
-                    predicted_label = res["h_command"]
-                elif res["v_command"] == "UP":
-                    predicted_label = "UP (BOTH_HANDS)"
-                elif res["v_command"] == "DOWN":
-                    predicted_label = "DOWN (BOTH_FEET)"
-                else:
-                    predicted_label = "NEUTRAL"
-
-                matched = predicted_label == ground_truth_label
-                conf_pct = (
-                    max(res["probabilities"].values()) * 100.0 if res["probabilities"] else 0.0
+                st.markdown(
+                    f"**Ground Truth:** `{last_trial['ground_truth']}` → "
+                    f"**Blind Prediction:** `{last_trial['predicted']}`"
                 )
-                trials = list(st.session_state["session_trials"])
-                trials.append(
+
+                st.markdown("**Live Motor Cortex Signal Trace (8–30 Hz RMS & Waveform)**")
+                rms = last_trial["rms_uv"]
+                bp = last_trial["bandpower_uv2"]
+                bp_col1, bp_col2, bp_col3 = st.columns(3)
+                bp_col1.metric("C3 (Left Motor)", f"{rms['C3']:.2f} µV RMS", f"{bp['C3']:.1f} µV²")
+                bp_col2.metric("Cz (Midline)", f"{rms['Cz']:.2f} µV RMS", f"{bp['Cz']:.1f} µV²")
+                bp_col3.metric("C4 (Right Motor)", f"{rms['C4']:.2f} µV RMS", f"{bp['C4']:.1f} µV²")
+
+                filtered_uv = last_trial["filtered_epoch"] * 1e6
+                n_times = filtered_uv.shape[1]
+                time_axis = np.linspace(0.5, 3.5, n_times)
+                wave_df = pd.DataFrame(
                     {
-                        "Trial #": len(trials) + 1,
-                        "Source EDF": trial_meta["source_file"],
-                        "Ground Truth": ground_truth_label,
-                        "Blind Prediction": predicted_label,
-                        "Match": "✅" if matched else "❌",
-                        "Confidence %": f"{conf_pct:.1f}%",
-                        "Latency (ms)": round(lat_ms, 1),
+                        "Time (s)": time_axis,
+                        "C3 (Left Motor)": filtered_uv[last_trial["c3_idx"]],
+                        "Cz (Midline)": filtered_uv[last_trial["cz_idx"]],
+                        "C4 (Right Motor)": filtered_uv[last_trial["c4_idx"]],
                     }
                 )
-                st.session_state["session_trials"] = trials
-
-                st.session_state["arena_x"] = x
-                st.session_state["arena_y"] = y
-                st.session_state["arena_tx"] = tx
-                st.session_state["arena_ty"] = ty
-                st.session_state["arena_trail"] = trail
-                st.session_state["arena_hits"] = hits
-                st.session_state["arena_last_trial"] = {
-                    "source_file": trial_meta["source_file"],
-                    "trial_index": trial_meta["trial_index"],
-                    "event_code": trial_meta["event_code"],
-                    "ground_truth": ground_truth_label,
-                    "shape": tuple(epoch.shape),
-                    "sfreq": float(trial_meta["sfreq"]),
-                    "filtered_epoch": filtered_epoch,
-                    "c3_idx": c3_idx,
-                    "cz_idx": cz_idx,
-                    "c4_idx": c4_idx,
-                    "bandpower_uv2": bandpower_uv2,
-                    "rms_uv": rms_uv,
-                    "predicted": predicted_label,
-                    "matched": matched,
-                    "h_command": res["h_command"],
-                    "v_command": res["v_command"],
-                    "vx": res["vx"],
-                    "vy": res["vy"],
-                    "latency_ms": lat_ms,
-                    "probabilities": res["probabilities"],
-                    "model_label": model_label,
-                }
-
-        def _render_telemetry(
-            lat_ms: float,
-            h_cmd: str,
-            v_cmd: str,
-            vx: float,
-            vy: float,
-            hits: int,
-            probs: dict[str, float],
-        ) -> None:
-            with metrics_slot.container():
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Latency", f"{lat_ms:.1f} ms")
-                m2.metric("Horizontal", h_cmd, f"vx={vx:+.2f}")
-                m3.metric("Vertical", v_cmd, f"vy={vy:+.2f}")
-                st.metric("Targets Reached", hits)
-
-            with probs_slot.container():
-                st.markdown("**Live Class Probabilities**")
-                for label in ["LEFT", "RIGHT", "BOTH_HANDS", "BOTH_FEET"]:
-                    val = probs.get(label, 0.0)
-                    st.progress(
-                        min(1.0, max(0.0, val)),
-                        text=f"{label}: {val * 100:.1f}%",
-                    )
-
-        arena_slot.markdown(
-            _render_arena_svg(
-                st.session_state["arena_x"],
-                st.session_state["arena_y"],
-                st.session_state["arena_tx"],
-                st.session_state["arena_ty"],
-                st.session_state["arena_trail"],
-                st.session_state["arena_hits"],
-            ),
-            unsafe_allow_html=True,
-        )
-
-        session_trials = st.session_state["session_trials"]
-        with scorecard_slot.container():
-            sc1, sc2, sc3 = st.columns(3)
-            if session_trials:
-                n_correct = sum(1 for row in session_trials if row["Match"] == "✅")
-                n_total = len(session_trials)
-                mean_lat = sum(float(row["Latency (ms)"]) for row in session_trials) / n_total
-                sc1.metric(
-                    "Blind Session Accuracy",
-                    f"{n_correct / n_total:.0%} ({n_correct}/{n_total})",
-                    border=True,
+                st.caption(
+                    f"`[0.5s – 3.5s]`, {n_times} samples @ {last_trial['sfreq']:.0f} Hz — "
+                    f"`{last_trial['source_file']}` Trial #{last_trial['trial_index']}"
                 )
-                sc2.metric("Targets Hit", st.session_state["arena_hits"], border=True)
-                sc3.metric("Mean Latency", f"{mean_lat:.1f} ms", border=True)
-            else:
-                sc1.metric("Blind Session Accuracy", "—", border=True)
-                sc2.metric("Targets Hit", st.session_state["arena_hits"], border=True)
-                sc3.metric("Mean Latency", "—", border=True)
+                st.line_chart(
+                    wave_df,
+                    x="Time (s)",
+                    y=["C3 (Left Motor)", "Cz (Midline)", "C4 (Right Motor)"],
+                    x_label="Time (s) [0.5s – 3.5s]",
+                    y_label="Amplitude (µV)",
+                    height=240,
+                )
 
-        last_trial = st.session_state.get("arena_last_trial")
-        if last_trial is not None:
-            status_badge = "✅ Match" if last_trial["matched"] else "❌ Misclassified"
-            summary_msg = (
-                f"**{status_badge}** — **Ground Truth:** `{last_trial['ground_truth']}` | "
-                f"**Blind Model Prediction ({last_trial['model_label']}):** `{last_trial['predicted']}`"
+                if session_trials:
+                    st.markdown("**Recent Trials (Last 5)**")
+                    recent_df = pd.DataFrame(session_trials[-5:][::-1])
+                    st.dataframe(recent_df, hide_index=True, width="stretch")
+
+    if start_btn:
+        edf_file = run_map[stream_mode]
+
+        if not (models_ready and edf_file.exists()):
+            st.error(
+                "Missing model artifacts or EDF recording. Ensure models and Subject 1 EDF files are present."
             )
-            if last_trial["matched"]:
-                trial_status_slot.success(summary_msg)
-            else:
-                trial_status_slot.warning(summary_msg)
-            _render_telemetry(
-                last_trial["latency_ms"],
-                last_trial["h_command"],
-                last_trial["v_command"],
-                last_trial["vx"],
-                last_trial["vy"],
-                st.session_state["arena_hits"],
-                last_trial["probabilities"],
+        else:
+            engine = BCIInferenceEngine(
+                horizontal_model_path=h_model,
+                vertical_model_path=v_model,
+                threshold=0.50,
+                deadband=0.10,
+                single_axis=True,
+                smoothing_alpha=0.35,
+                history_len=3,
             )
+            streamer = MockEEGStreamer(edf_file, chunk_size=16)
+            ring_buf = SlidingRingBuffer(n_channels=64, window_samples=481)
 
-            with inspector_slot.container():
-                st.markdown("#### Sampled EEG Trial Inspector (Live Dataset Proof)")
-                with st.container(border=True):
-                    st.markdown(f"**Trial Provenance** — {status_badge}")
-                    prov_col1, prov_col2 = st.columns(2)
-                    prov_col1.markdown(
-                        f"- **Source EDF:** `{last_trial['source_file']}`\n"
-                        f"- **Trial Index:** `#{last_trial['trial_index']}`\n"
-                        f"- **Event Marker:** `{last_trial['event_code']}`"
-                    )
-                    prov_col2.markdown(
-                        f"- **Tensor Shape:** `{last_trial['shape']}`\n"
-                        f"- **Sampling Rate:** `{last_trial['sfreq']:.0f} Hz`\n"
-                        f"- **Inference Latency:** `{last_trial['latency_ms']:.1f} ms`"
-                    )
-                    st.markdown(
-                        f"**Ground Truth:** `{last_trial['ground_truth']}` → "
-                        f"**Blind Prediction:** `{last_trial['predicted']}`"
-                    )
+            while not ring_buf.is_full():
+                ring_buf.push(streamer.get_chunk())
 
-                    st.markdown("**Live Motor Cortex Signal Trace (8–30 Hz RMS & Waveform)**")
-                    rms = last_trial["rms_uv"]
-                    bp = last_trial["bandpower_uv2"]
-                    bp_col1, bp_col2, bp_col3 = st.columns(3)
-                    bp_col1.metric("C3 (Left Motor)", f"{rms['C3']:.2f} µV RMS", f"{bp['C3']:.1f} µV²")
-                    bp_col2.metric("Cz (Midline)", f"{rms['Cz']:.2f} µV RMS", f"{bp['Cz']:.1f} µV²")
-                    bp_col3.metric("C4 (Right Motor)", f"{rms['C4']:.2f} µV RMS", f"{bp['C4']:.1f} µV²")
+            x = st.session_state["arena_x"]
+            y = st.session_state["arena_y"]
+            tx = st.session_state["arena_tx"]
+            ty = st.session_state["arena_ty"]
+            hits = st.session_state["arena_hits"]
+            trail = list(st.session_state["arena_trail"])
+            step = 0
+            t_start = time.time()
 
-                    filtered_uv = last_trial["filtered_epoch"] * 1e6
-                    n_times = filtered_uv.shape[1]
-                    time_axis = np.linspace(0.5, 3.5, n_times)
-                    wave_df = pd.DataFrame(
-                        {
-                            "Time (s)": time_axis,
-                            "C3 (Left Motor)": filtered_uv[last_trial["c3_idx"]],
-                            "Cz (Midline)": filtered_uv[last_trial["cz_idx"]],
-                            "C4 (Right Motor)": filtered_uv[last_trial["c4_idx"]],
-                        }
+            while (time.time() - t_start) < duration_sec:
+                ring_buf.push(streamer.get_chunk())
+                step += 1
+
+                if step % 3 == 0:
+                    t0 = time.perf_counter()
+                    res = engine.predict_window(ring_buf.get_window(), axis_lock="AUTO")
+                    lat_ms = (time.perf_counter() - t0) * 1000.0
+
+                    x = max(-95.0, min(95.0, x + alpha * res["vx"] * 18.0))
+                    y = max(-95.0, min(95.0, y + alpha * res["vy"] * 18.0))
+                    trail.append((x, y))
+
+                    if math.hypot(x - tx, y - ty) <= 22.0:
+                        hits += 1
+                        tx, ty = random.choice([t for t in ARENA_TARGETS if t != (tx, ty)])
+
+                    arena_slot.markdown(
+                        _render_arena_svg(x, y, tx, ty, trail, hits),
+                        unsafe_allow_html=True,
                     )
-                    st.caption(
-                        f"`[0.5s – 3.5s]`, {n_times} samples @ {last_trial['sfreq']:.0f} Hz — "
-                        f"`{last_trial['source_file']}` Trial #{last_trial['trial_index']}"
-                    )
-                    st.line_chart(
-                        wave_df,
-                        x="Time (s)",
-                        y=["C3 (Left Motor)", "Cz (Midline)", "C4 (Right Motor)"],
-                        x_label="Time (s) [0.5s – 3.5s]",
-                        y_label="Amplitude (µV)",
-                        height=240,
+                    _render_telemetry(
+                        lat_ms,
+                        res["h_command"],
+                        res["v_command"],
+                        res["vx"],
+                        res["vy"],
+                        hits,
+                        res["probabilities"],
                     )
 
-                    if session_trials:
-                        st.markdown("**Recent Trials (Last 5)**")
-                        recent_df = pd.DataFrame(session_trials[-5:][::-1])
-                        st.dataframe(recent_df, hide_index=True, width="stretch")
+                time.sleep(0.02)
 
-        if start_btn:
-            edf_file = run_map[stream_mode]
-
-            if not (models_ready and edf_file.exists()):
-                st.error(
-                    "Missing model artifacts or EDF recording. Ensure models and Subject 1 EDF files are present."
-                )
-            else:
-                engine = BCIInferenceEngine(
-                    horizontal_model_path=h_model,
-                    vertical_model_path=v_model,
-                    threshold=0.50,
-                    deadband=0.10,
-                    single_axis=True,
-                    smoothing_alpha=0.35,
-                    history_len=3,
-                )
-                streamer = MockEEGStreamer(edf_file, chunk_size=16)
-                ring_buf = SlidingRingBuffer(n_channels=64, window_samples=481)
-
-                while not ring_buf.is_full():
-                    ring_buf.push(streamer.get_chunk())
-
-                x = st.session_state["arena_x"]
-                y = st.session_state["arena_y"]
-                tx = st.session_state["arena_tx"]
-                ty = st.session_state["arena_ty"]
-                hits = st.session_state["arena_hits"]
-                trail = list(st.session_state["arena_trail"])
-                step = 0
-                t_start = time.time()
-
-                while (time.time() - t_start) < duration_sec:
-                    ring_buf.push(streamer.get_chunk())
-                    step += 1
-
-                    if step % 3 == 0:
-                        t0 = time.perf_counter()
-                        res = engine.predict_window(ring_buf.get_window(), axis_lock="AUTO")
-                        lat_ms = (time.perf_counter() - t0) * 1000.0
-
-                        x = max(-95.0, min(95.0, x + alpha * res["vx"] * 18.0))
-                        y = max(-95.0, min(95.0, y + alpha * res["vy"] * 18.0))
-                        trail.append((x, y))
-
-                        if math.hypot(x - tx, y - ty) <= 22.0:
-                            hits += 1
-                            tx, ty = random.choice([t for t in ARENA_TARGETS if t != (tx, ty)])
-
-                        arena_slot.markdown(
-                            _render_arena_svg(x, y, tx, ty, trail, hits),
-                            unsafe_allow_html=True,
-                        )
-                        _render_telemetry(
-                            lat_ms,
-                            res["h_command"],
-                            res["v_command"],
-                            res["vx"],
-                            res["vy"],
-                            hits,
-                            res["probabilities"],
-                        )
-
-                    time.sleep(0.02)
-
-                st.session_state["arena_x"] = x
-                st.session_state["arena_y"] = y
-                st.session_state["arena_tx"] = tx
-                st.session_state["arena_ty"] = ty
-                st.session_state["arena_trail"] = trail
-                st.session_state["arena_hits"] = hits
+            st.session_state["arena_x"] = x
+            st.session_state["arena_y"] = y
+            st.session_state["arena_tx"] = tx
+            st.session_state["arena_ty"] = ty
+            st.session_state["arena_trail"] = trail
+            st.session_state["arena_hits"] = hits
 
 
 if __name__ == "__main__":
