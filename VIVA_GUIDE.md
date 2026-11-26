@@ -213,30 +213,112 @@ Our pipeline evolved through 4 distinct engineering iterations, creating a compe
 
 ---
 
-## 5. Real-Time Inference Engine & 2D Control
+## 5. Real-Time Simulation & 2D Cursor Mapping
 
-Real-time continuous inference differs fundamentally from offline epoch classification:
+A critical strength of this project is that it bridges offline theoretical machine learning with **live, interactive 2D closed-loop simulation**. Here is exactly how the simulation and spatial mapping operate:
 
-### 1. Sliding Ring Buffer Architecture
-- **Buffer Dimensions:** $64\text{ channels} \times 481\text{ samples}$ ($3.0\text{ seconds}$ at $160\text{ Hz}$).
-- **Stream Rate:** Ingests chunks of 16 samples every $100\text{ ms}$.
-- **Window Overlap:** 96.7% overlap between successive inference windows, maintaining smooth continuous velocity updates.
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ STREAMING / SAMPLING PIPELINE                                          │
+│ • Mode A: Sample real (64, 481) epoch from unseen EDF (R12/R14)        │
+│ • Mode B: MockEEGStreamer feeds 16-sample chunks (100 ms) continuously │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│ BCI INFERENCE ENGINE                                                   │
+│ • 481-sample window (3.0s @ 160 Hz) bandpassed to 8–30 Hz             │
+│ • Model predicts raw probabilities: [P_FEET, P_HANDS, P_LEFT, P_RIGHT] │
+│ • Exponential Moving Average smoothing (alpha = 0.35)                  │
+│ • Rolling majority-vote buffer (history_len = 3)                       │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│ 2D VELOCITY MAPPING & ARBITRATION                                      │
+│ • vx = P(RIGHT) - P(LEFT)       |  vy = P(BOTH_HANDS) - P(BOTH_FEET)   │
+│ • Confidence deadband gating: if |v| < 0.10 -> v = 0.0                 │
+│ • Hierarchical Lateral Priority: lateral intent overrides vertical     │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│ KINEMATICS & ARENA TARGET COLLISION                                    │
+│ • x_(t) = clip(x_(t-1) + alpha * vx * step, -95, +95)                  │
+│ • y_(t) = clip(y_(t-1) + alpha * vy * step, -95, +95)                  │
+│ • Target hit detection: sqrt((x - tx)^2 + (y - ty)^2) <= 22 units      │
+│ • SVG smooth rendering: transition: cx 0.22s, cy 0.22s                 │
+└────────────────────────────────────────────────────────────────────────┘
+```
 
-### 2. Velocity Mapping & Deadband Gating
-From 4-class model probabilities $[P_{\text{FEET}}, P_{\text{HANDS}}, P_{\text{LEFT}}, P_{\text{RIGHT}}]$:
-$$v_x = P(\text{RIGHT}) - P(\text{LEFT})$$
-$$v_y = P(\text{BOTH\_HANDS}) - P(\text{BOTH\_FEET})$$
-- **Confidence Deadband (`deadband = 0.10`):** If $|v_x| < 0.10$, $v_x$ is clamped to $0.0$.
-- **Class Thresholding (`threshold = 0.50`):** Requires $\max(P) \ge 0.50$ before issuing a non-neutral command.
+---
 
-### 3. Jitter Suppression & Smoothing
-- **Probability EMA Smoothing ($\alpha = 0.35$):**
-  $$P_{\text{smoothed}}^{(t)} = \alpha P_{\text{raw}}^{(t)} + (1 - \alpha) P_{\text{smoothed}}^{(t-1)}$$
-- **Rolling Majority-Vote Buffer (`history_len = 3`):** Directional commands must be confirmed across rolling history to eliminate single-window artifact spikes.
+### A. How We Simulate EEG Data (Two Operational Modes)
 
-### 4. UI Architecture & Flicker Elimination
-- **Streamlit `@st.fragment` Decorator:** The Live 2D Arena is isolated in a Streamlit fragment. Button taps rerun only the local arena component without triggering a full page reload or flashing top metrics.
-- **CSS Transitions:** Added `style="transition: cx 0.22s cubic-bezier(0.25, 1, 0.5, 1), cy 0.22s;"` on SVG cursor elements, making cursor motion glide smoothly across the screen.
+The system provides two simulation modalities to validate model decoding:
+
+#### Mode 1: Interactive 4-Direction Thought Simulator (Real Epoch Sampling)
+* **What happens when you tap a button:**
+  1. When you press **`⬆️ Think UP`**, **`⬇️ Think DOWN`**, **`⬅️ Think LEFT`**, or **`➡️ Think RIGHT`**, the system **does not synthesize fake data**.
+  2. Instead, it accesses the real, physical EDF recordings from Subject 1:
+     - `LEFT` & `RIGHT`: Sampled randomly from held-out **`S001R12.edf`**.
+     - `UP` & `DOWN`: Sampled randomly from held-out **`S001R14.edf`**.
+  3. It extracts a genuine $64\text{ channels} \times 481\text{ samples}$ post-cue EEG tensor ($3.0\text{ seconds}$ at $160\text{ Hz}$).
+  4. It feeds this raw tensor **completely blind** to the active model. The model has no knowledge of which button was pressed; it only sees the brainwaves.
+  5. The model outputs its predicted label and confidence probabilities.
+  6. The system checks the trial's original hardware annotation marker (`T1` or `T2`) to determine if the model was correct (`✅ Match` or `❌ Misclassified`).
+  7. **Live Signal Inspector:** Displays the exact trial provenance (source EDF, trial index, event code, sampling rate, inference latency) and plots the real motor cortex waveforms (`C3`, `Cz`, `C4`) along with their RMS amplitude ($\mu\text{V}$) and bandpower ($\mu\text{V}^2$).
+
+#### Mode 2: Continuous 160 Hz Stream Replay
+* Simulates real-time hardware acquisition from a wireless EEG headset.
+* `MockEEGStreamer` streams real recording files in chunks of 16 samples every $100\text{ ms}$.
+* Ingests chunks into a circular `SlidingRingBuffer` ($64 \times 481$).
+* Every $60\text{ ms}$, the buffer extracts the rolling 3.0s window, runs inference, and continuously updates the cursor's trajectory.
+
+---
+
+### B. How Model Probabilities Map to 2D Cursor Velocities
+
+The model outputs a 4-dimensional probability vector:
+$$\mathbf{P} = [P_{\text{BOTH\_FEET}}, P_{\text{BOTH\_HANDS}}, P_{\text{LEFT}}, P_{\text{RIGHT}}], \quad \sum P_i = 1.0$$
+
+#### 1. Continuous Velocity Equations
+We translate these 4 discrete probabilities into continuous Cartesian velocity vectors:
+$$v_x = P(\text{RIGHT}) - P(\text{LEFT}) \quad \in [-1.0, +1.0]$$
+$$v_y = P(\text{BOTH\_HANDS}) - P(\text{BOTH\_FEET}) \quad \in [-1.0, +1.0]$$
+
+* If $P(\text{RIGHT}) = 0.90$ and $P(\text{LEFT}) = 0.05 \implies v_x = +0.85$ (Move Right quickly).
+* If $P(\text{LEFT}) = 0.85$ and $P(\text{RIGHT}) = 0.05 \implies v_x = -0.80$ (Move Left quickly).
+* If $P(\text{BOTH\_HANDS}) = 0.80$ and $P(\text{BOTH\_FEET}) = 0.10 \implies v_y = +0.70$ (Move Up quickly).
+* If $P(\text{BOTH\_FEET}) = 0.95$ and $P(\text{BOTH\_HANDS}) = 0.02 \implies v_y = -0.93$ (Move Down quickly).
+
+#### 2. Confidence Deadband & Neutral Gating
+To prevent the cursor from drifting when the user is resting or thinking ambiguously:
+* **Deadband Threshold (`deadband = 0.10`):**
+  $$\text{if } |v_x| < 0.10 \implies v_x = 0.0$$
+  $$\text{if } |v_y| < 0.10 \implies v_y = 0.0$$
+* **Probability Threshold (`threshold = 0.50`):**
+  If $\max(\mathbf{P}) < 0.50$, the system outputs command `NEUTRAL`, keeping velocity at $(0, 0)$.
+
+#### 3. Single-Axis Winner-Take-All Gating (Axis Locking)
+Human users find 2D cardinal navigation much easier than diagonal drift:
+* The engine compares the magnitude of lateral intent ($|v_x|$) against vertical intent ($|v_y|$).
+* **Hierarchical Lateral Priority:** If lateral hand intent is confident ($|v_x| \ge \text{deadband}$), it locks the vertical axis ($v_y = 0$) to protect the user from accidental upward drift caused by bilateral hand cortex activation.
+
+#### 4. Kinematic Position Integration
+The cursor coordinates $(x_t, y_t)$ in the 2D arena (bounded between $[-95, +95]$) update according to:
+$$x_{t} = \operatorname{clip}\left(x_{t-1} + \alpha \cdot v_x \cdot \Delta s, \ -95.0, \ +95.0\right)$$
+$$y_{t} = \operatorname{clip}\left(y_{t-1} + \alpha \cdot v_y \cdot \Delta s, \ -95.0, \ +95.0\right)$$
+where $\alpha = 0.35$ (smoothing factor) and $\Delta s = 35.0$ (step gain).
+
+#### 5. Target-Reaching Game & Collision Detection
+* Green circular targets spawn at randomized coordinates: `(±65, ±65)` or `(0, 75)`, `(75, 0)`.
+* Euclidean collision detection evaluates distance between the cursor $(x, y)$ and target $(t_x, t_y)$:
+  $$d = \sqrt{(x - t_x)^2 + (y - t_y)^2}$$
+* If $d \le 22.0\text{ units}$, a **Target Hit** is registered:
+  - Hits counter increments: `hits += 1`.
+  - A new random target spawns in another quadrant.
+  - The cursor trail records the path taken to reach the goal.
 
 ---
 
