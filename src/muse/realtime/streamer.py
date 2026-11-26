@@ -19,13 +19,17 @@ class MockEEGStreamer:
         if not self.edf_path.exists():
             raise FileNotFoundError(f"EDF file not found: {self.edf_path}")
 
-        # Load raw recording without extra terminal spam
+        # Load raw recording without extra terminal spam and align EEG channel picks with training
         self.raw = mne.io.read_raw_edf(self.edf_path, preload=True, verbose="ERROR")
+        mne.datasets.eegbci.standardize(self.raw)
+        picks = mne.pick_types(
+            self.raw.info, eeg=True, meg=False, stim=False, eog=False, exclude="bads"
+        )
         self.sfreq = float(self.raw.info["sfreq"])
-        self.ch_names = self.raw.ch_names
-        
-        # Shape: (n_channels, total_time_samples)
-        self.data = self.raw.get_data()
+        self.ch_names = [self.raw.ch_names[idx] for idx in picks]
+
+        # Shape: (n_eeg_channels, total_time_samples) in Volts
+        self.data = self.raw.get_data(picks=picks)
         self.n_channels, self.total_samples = self.data.shape
         
         self.chunk_size = chunk_size

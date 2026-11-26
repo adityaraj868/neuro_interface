@@ -5,11 +5,11 @@ class SlidingRingBuffer:
     """
     Maintains a rolling First-In-First-Out (FIFO) window of multichannel EEG data.
     """
-    def __init__(self, n_channels: int = 64, window_samples: int = 480):
+    def __init__(self, n_channels: int = 64, window_samples: int = 481):
         """
         Args:
             n_channels: Number of EEG electrode channels (64 for PhysioNet).
-            window_samples: Window length in samples (480 samples = 3.0s at 160 Hz).
+            window_samples: Window length in samples (481 samples = [1.0s, 4.0s] at 160 Hz).
         """
         self.n_channels = n_channels
         self.window_samples = window_samples

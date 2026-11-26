@@ -13,9 +13,19 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from muse.data import DatasetFilesMissingError, download_eegbci, load_imagery_dataset, task_for_run  # noqa: E402
+from muse.data import (  # noqa: E402
+    DatasetFilesMissingError,
+    download_eegbci,
+    load_four_class_imagery_dataset,
+    load_imagery_dataset,
+    task_for_run,
+)
 from muse.evaluation import evaluate_grouped, save_evaluation_artifacts  # noqa: E402
-from muse.models import make_csp_lda_pipeline, make_csp_svm_pipeline  # noqa: E402
+from muse.models import (  # noqa: E402
+    make_csp_lda_pipeline,
+    make_csp_svm_pipeline,
+    make_riemannian_svm_pipeline,
+)
 from muse.preprocessing import PreprocessingConfig  # noqa: E402
 
 
@@ -24,13 +34,13 @@ def main() -> int:
     parser.add_argument("--data-dir", type=Path, default=ROOT / "data" / "physionet")
     parser.add_argument("--subjects", type=int, nargs="+", default=[1])
     parser.add_argument("--runs", type=int, nargs="+", default=None)
-    parser.add_argument("--task", choices=["unilateral", "bilateral"], default="unilateral")
-    parser.add_argument("--model", choices=["lda", "svm"], default="lda")
+    parser.add_argument("--task", choices=["unilateral", "bilateral", "four_class"], default="unilateral")
+    parser.add_argument("--model", choices=["lda", "svm", "riemannian"], default="lda")
     parser.add_argument(
         "--grouping",
         choices=["recording", "subject"],
         default="recording",
-        help="Hold out each subject/run recording or each subject across all requested runs.",
+        help="Hold out each subject/run recording (or paired 4-class session) or each subject.",
     )
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--csp-components", type=int, default=4)
@@ -52,16 +62,25 @@ def main() -> int:
         help="Download exactly the requested files before running.",
     )
     args = parser.parse_args()
-    runs = args.runs or ([4, 8, 12] if args.task == "unilateral" else [6, 10, 14])
-    try:
-        actual_tasks = {task_for_run(run) for run in runs}
-    except ValueError as exc:
-        parser.error(str(exc))
-    if actual_tasks != {args.task}:
-        parser.error(
-            f"--task {args.task!r} does not match requested runs {runs}; "
-            f"those runs represent {sorted(actual_tasks)}."
-        )
+
+    if args.task == "four_class":
+        runs = args.runs or [4, 8, 12, 6, 10, 14]
+        uni_runs = [r for r in runs if task_for_run(r) == "unilateral"]
+        bi_runs = [r for r in runs if task_for_run(r) == "bilateral"]
+        if not uni_runs or not bi_runs:
+            parser.error("--task 'four_class' requires both unilateral and bilateral imagery runs.")
+    else:
+        runs = args.runs or ([4, 8, 12] if args.task == "unilateral" else [6, 10, 14])
+        try:
+            actual_tasks = {task_for_run(run) for run in runs}
+        except ValueError as exc:
+            parser.error(str(exc))
+        if actual_tasks != {args.task}:
+            parser.error(
+                f"--task {args.task!r} does not match requested runs {runs}; "
+                f"those runs represent {sorted(actual_tasks)}."
+            )
+
     try:
         if args.download_missing:
             download_eegbci(args.data_dir, args.subjects, runs)
@@ -75,14 +94,25 @@ def main() -> int:
         reject_uV=args.reject_uV,
     )
     try:
-        dataset = load_imagery_dataset(args.data_dir, args.subjects, runs, config=config)
+        if args.task == "four_class":
+            dataset = load_four_class_imagery_dataset(
+                args.data_dir,
+                args.subjects,
+                unilateral_runs=uni_runs,
+                bilateral_runs=bi_runs,
+                config=config,
+            )
+        else:
+            dataset = load_imagery_dataset(args.data_dir, args.subjects, runs, config=config)
     except DatasetFilesMissingError as exc:
         parser.exit(1, f"{exc}\n")
-    estimator = (
-        make_csp_lda_pipeline(args.csp_components)
-        if args.model == "lda"
-        else make_csp_svm_pipeline(args.csp_components)
-    )
+
+    if args.model == "lda":
+        estimator = make_csp_lda_pipeline(args.csp_components)
+    elif args.model == "svm":
+        estimator = make_csp_svm_pipeline(args.csp_components)
+    else:
+        estimator = make_riemannian_svm_pipeline(estimator="oas", C=1.0, probability=True)
     evaluation_groups = (
         dataset.groups
         if args.grouping == "recording"

@@ -36,7 +36,7 @@ def run_2d_demo(edf_path: Path, duration_sec: float = 15.0, alpha: float = 0.30,
         deadband=0.15,
     )
     stream = MockEEGStreamer(edf_path, chunk_size=16)
-    buf = SlidingRingBuffer(n_channels=64, window_samples=480)
+    buf = SlidingRingBuffer(n_channels=64, window_samples=481)
 
     print(f"Loading stream: {edf_path.name} | Filling 3.0s ring buffer...")
     while not buf.is_full():

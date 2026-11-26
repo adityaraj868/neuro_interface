@@ -1,0 +1,14 @@
+{
+  "task": "four_class",
+  "subjects": [1],
+  "unilateral_runs": [4, 8, 12],
+  "bilateral_runs": [6, 10, 14],
+  "classes": ["LEFT", "RIGHT", "BOTH_HANDS", "BOTH_FEET"],
+  "l_freq_hz": 8.0,
+  "h_freq_hz": 30.0,
+  "epoch_tmin_s": 1.0,
+  "epoch_tmax_s": 4.0,
+  "reject_uV": 150.0,
+  "models": ["lda", "riemannian"],
+  "validation": "Leave-One-Session-Group-Out"
+}
