@@ -48,53 +48,34 @@ def _make_calibrated_csp_lda(n_components: int = 8) -> Pipeline:
     )
 
 
-def _evaluate_cv_and_save(
+def _evaluate_holdout_and_save(
     name: str,
     make_estimator_fn: Callable[[], Any],
-    X: np.ndarray,
-    y: np.ndarray,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_test: np.ndarray,
+    y_test: np.ndarray,
+    test_groups: np.ndarray,
     output_dir: Path,
     config_payload: dict[str, Any],
-    n_splits: int = 5,
-    random_state: int = 42,
 ) -> dict[str, Any]:
-    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
-    oof_preds = np.empty(len(y), dtype=object)
-    fold_assignment = np.empty(len(y), dtype=object)
-    fold_results = []
-    classes = sorted(str(c) for c in np.unique(y))
-    class_counts = {label: int(np.sum(y == label)) for label in classes}
+    # Fit estimator strictly on training runs (Runs 04, 06, 08, 10)
+    estimator = make_estimator_fn()
+    estimator.fit(X_train, y_train)
 
-    for fold, (train_idx, test_idx) in enumerate(cv.split(X, y), start=1):
-        fold_estimator = make_estimator_fn()
-        fold_estimator.fit(X[train_idx], y[train_idx])
-        pred = fold_estimator.predict(X[test_idx])
-        oof_preds[test_idx] = pred
-        fold_assignment[test_idx] = f"fold_{fold}"
+    # Predict strictly on unseen held-out runs (Runs 12, 14)
+    preds = np.asarray(estimator.predict(X_test), dtype=str)
+    truth = np.asarray(y_test, dtype=str)
+    classes = sorted(str(c) for c in np.unique(np.concatenate([y_train, y_test])))
+    class_counts = {label: int(np.sum(truth == label)) for label in classes}
 
-        f_truth = y[test_idx]
-        f_acc = float(accuracy_score(f_truth, pred))
-        f_bacc = float(balanced_accuracy_score(f_truth, pred))
-        f_macro_f1 = float(f1_score(f_truth, pred, labels=classes, average="macro", zero_division=0))
-        fold_results.append(
-            {
-                "fold": fold,
-                "held_out_groups": [f"fold_{fold}"],
-                "n_train": int(len(train_idx)),
-                "n_test": int(len(test_idx)),
-                "accuracy": f_acc,
-                "balanced_accuracy": f_bacc,
-                "macro_f1": f_macro_f1,
-            }
-        )
-
-    acc = float(accuracy_score(y, oof_preds))
-    bacc = float(balanced_accuracy_score(y, oof_preds))
-    macro_f1 = float(f1_score(y, oof_preds, labels=classes, average="macro", zero_division=0))
-    cm = confusion_matrix(y, oof_preds, labels=classes).astype(int).tolist()
+    acc = float(accuracy_score(truth, preds))
+    bacc = float(balanced_accuracy_score(truth, preds))
+    macro_f1 = float(f1_score(truth, preds, labels=classes, average="macro", zero_division=0))
+    cm = confusion_matrix(truth, preds, labels=classes).astype(int).tolist()
     report = classification_report(
-        y,
-        oof_preds,
+        truth,
+        preds,
         labels=classes,
         target_names=classes,
         output_dict=True,
@@ -109,34 +90,41 @@ def _evaluate_cv_and_save(
         chance_level=float(1.0 / len(classes)),
         confusion_matrix=cm,
         classification_report=report,
-        n_epochs=int(len(y)),
-        n_groups=n_splits,
+        n_epochs=int(len(truth)),
+        n_groups=int(len(np.unique(test_groups))),
         class_counts=class_counts,
-        fold_results=fold_results,
-        predictions=oof_preds.tolist(),
-        truth=y.tolist(),
-        prediction_groups=fold_assignment.tolist(),
+        fold_results=[
+            {
+                "fold": 1,
+                "held_out_groups": sorted(set(str(g) for g in test_groups)),
+                "n_train": int(len(X_train)),
+                "n_test": int(len(X_test)),
+                "accuracy": acc,
+                "balanced_accuracy": bacc,
+                "macro_f1": macro_f1,
+            }
+        ],
+        predictions=preds.tolist(),
+        truth=truth.tolist(),
+        prediction_groups=np.asarray(test_groups, dtype=str).tolist(),
     )
 
-    # Fit final estimator on all available S001 data for live real-time simulation
-    final_estimator = make_estimator_fn()
-    final_estimator.fit(X, y)
-
+    # Save artifacts: estimator has NEVER seen X_test (guaranteed zero leakage)
     artifacts = save_evaluation_artifacts(
         result,
         output_dir,
         config=config_payload,
-        estimator=final_estimator,
-        X=X,
-        y=y,
+        estimator=estimator,
+        X=X_train,
+        y=y_train,
     )
-    print(f"\n[{name}] 5-Fold Stratified Cross-Validation (n={len(y)}):")
-    print(f"  CV Accuracy:          {acc:.2%} (Chance: 25.00%)")
-    print(f"  CV Balanced Accuracy: {bacc:.2%}")
-    print(f"  CV Macro F1:          {macro_f1:.2%}")
-    print(f"  Classes:              {classes}")
-    print(f"  Confusion Matrix:     {cm}")
-    print(f"  Saved to:             {artifacts['model']}")
+    print(f"\n[{name}] Strict Holdout on Unseen Runs 12 & 14 (n={len(truth)}):")
+    print(f"  Holdout Accuracy:          {acc:.2%} (Chance: 25.00%)")
+    print(f"  Holdout Balanced Accuracy: {bacc:.2%}")
+    print(f"  Holdout Macro F1:          {macro_f1:.2%}")
+    print(f"  Classes:                   {classes}")
+    print(f"  Confusion Matrix:          {cm}")
+    print(f"  Saved to:                  {artifacts['model']}")
     return {
         "accuracy": acc,
         "balanced_accuracy": bacc,
@@ -150,31 +138,44 @@ def main() -> int:
     data_dir = ROOT / "data" / "physionet"
     config = PreprocessingConfig(l_freq=8.0, h_freq=30.0, tmin=0.5, tmax=3.5, reject_uV=None)
 
-    full_data = load_four_class_imagery_dataset(
+    train_data = load_four_class_imagery_dataset(
         data_dir,
         [1],
+        unilateral_runs=[4, 8],
+        bilateral_runs=[6, 10],
+        config=config,
+    )
+    test_data = load_four_class_imagery_dataset(
+        data_dir,
+        [1],
+        unilateral_runs=[12],
+        bilateral_runs=[14],
         config=config,
     )
 
     print(
-        f"Loaded Subject 1 4-class dataset: {full_data.X.shape} (Runs 04, 06, 08, 10, 12, 14)"
+        f"Loaded Subject 1 4-class split:\n"
+        f"  Training Set: {train_data.X.shape} (Runs 04, 06, 08, 10; n={train_data.n_epochs})\n"
+        f"  Held-out Test Set: {test_data.X.shape} (Runs 12, 14; n={test_data.n_epochs})"
     )
 
     base_config = {
         "dataset": "PhysioNet EEG Motor Movement/Imagery Database v1.0.0",
         "subject": 1,
         "task": "four_class_calibrated",
-        "runs": [4, 6, 8, 10, 12, 14],
-        "n_epochs": full_data.n_epochs,
-        "n_channels": full_data.n_channels,
-        "n_times": full_data.n_times,
-        "sampling_rate_hz": full_data.sfreq,
+        "train_runs": [4, 6, 8, 10],
+        "held_out_test_runs": [12, 14],
+        "n_train_epochs": train_data.n_epochs,
+        "n_test_epochs": test_data.n_epochs,
+        "n_channels": train_data.n_channels,
+        "n_times": train_data.n_times,
+        "sampling_rate_hz": train_data.sfreq,
         "preprocessing": config.as_dict(),
-        "validation": "5-Fold Stratified Cross-Validation (out-of-fold metrics, zero leakage)",
+        "validation": "Strict chronological holdout: train strictly on Runs 04,06,08,10; test strictly on unseen Runs 12,14",
     }
 
     summary = {
-        "s001_4class_riemannian": _evaluate_cv_and_save(
+        "s001_4class_riemannian": _evaluate_holdout_and_save(
             "s001_4class_riemannian",
             lambda: make_riemannian_svm_pipeline(
                 estimator="oas",
@@ -185,24 +186,33 @@ def main() -> int:
                 kernel="linear",
                 scale=True,
             ),
-            full_data.X,
-            full_data.y,
+            train_data.X,
+            train_data.y,
+            test_data.X,
+            test_data.y,
+            test_data.groups,
             ROOT / "results" / "s001_4class_riemannian",
             {**base_config, "model": "riemannian_linear_oas_calibrated"},
         ),
-        "s001_4class_lda": _evaluate_cv_and_save(
+        "s001_4class_lda": _evaluate_holdout_and_save(
             "s001_4class_lda",
             lambda: _make_calibrated_csp_lda(n_components=8),
-            full_data.X,
-            full_data.y,
+            train_data.X,
+            train_data.y,
+            test_data.X,
+            test_data.y,
+            test_data.groups,
             ROOT / "results" / "s001_4class_lda",
             {**base_config, "model": "csp8_oas_lda_calibrated"},
         ),
-        "s001_4class_fbcsp": _evaluate_cv_and_save(
+        "s001_4class_fbcsp": _evaluate_holdout_and_save(
             "s001_4class_fbcsp",
             lambda: make_fbcsp_pipeline(n_components=6, k_features=12, classifier_type="lda"),
-            full_data.X,
-            full_data.y,
+            train_data.X,
+            train_data.y,
+            test_data.X,
+            test_data.y,
+            test_data.groups,
             ROOT / "results" / "s001_4class_fbcsp",
             {**base_config, "model": "fbcsp_mi_lda_calibrated"},
         ),
