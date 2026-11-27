@@ -39,3 +39,16 @@ results/*.npz
 # Private collaboration track notes
 TRACK.md
 
+# Reports, presentations, documents and viva guides
+reports/
+docs/report_figures/
+*.docx
+*.pptx
+*.pdf
+*.zip
+*viva*
+*VIVA*
+VIVA_GUIDE.md
+docs/VIVA_GUIDE.md
+
+
